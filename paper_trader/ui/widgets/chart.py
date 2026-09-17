@@ -273,7 +273,8 @@ class ChartWidget(QWidget):
         # Where the series ends, and what it ends at — the two things you look
         # for first on a price chart.
         self._last_dot = pg.ScatterPlotItem(size=8, pen=pg.mkPen(None))
-        self._last_label = pg.TextItem(anchor=(1.05, 0.5))
+        # A filled tag, so the level stays readable where it overlaps the line.
+        self._last_label = pg.TextItem(anchor=(1.05, 0.5), ensureInBounds=True)
         for item in (self._baseline, self._line_item, self._line_hi, self._candle_item,
                      self._last_dot, self._last_label,
                      self._vline, self._dot, self._time_label):
@@ -435,6 +436,8 @@ class ChartWidget(QWidget):
         self._plot.getAxis("left").setWidth(62)
         self._baseline.setPen(
             pg.mkPen(c["baseline"], width=1, style=Qt.PenStyle.DotLine))
+        self._last_label.fill = pg.mkBrush(c["background"])
+        self._last_label.border = pg.mkPen(c["axis"])
         self._vline.setPen(pg.mkPen(c["crosshair"], width=1))
         self._time_label.setColor(c["text"])
         self._sync_axis_visibility()

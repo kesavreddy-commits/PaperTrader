@@ -16,6 +16,10 @@ Alpaca APIs.
 
 ![Paper Trader — options chain, ticket and positions](docs/screenshot-options.png)
 
+<p align="center"><em>The previous interface, still available with <code>run.py --old</code>:</em></p>
+
+![Paper Trader — the classic interface](docs/screenshot-classic.png)
+
 <p align="center"><em>Candlestick view (Alpaca) and the offline simulator with positions:</em></p>
 
 <p align="center">
@@ -87,7 +91,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Run
+# 3. Run  (add --old for the previous interface)
 python run.py                      # uses Alpaca if keys are set, else Yahoo
 python run.py --demo               # fully offline: local simulator + synthetic data
 ```
@@ -121,7 +125,7 @@ from the **Account** and **View → Market Data Source** menus.
 python tests/test_engine.py        # trading engine, portfolio, analytics, persistence
 python tests/test_options.py       # Black-Scholes, options engine, chain, settlement
 python tests/test_data.py          # data cache, synthetic provider, Yahoo parser
-python tests/test_ui.py            # chart zoom, empty states, theming, reset (offscreen)
+python tests/test_ui.py            # chart zoom, layout, empty states, theming (offscreen)
 python tests/test_alpaca.py        # live Alpaca provider + broker (skips without keys)
 ```
 
@@ -140,6 +144,7 @@ python tests/test_alpaca.py        # live Alpaca provider + broker (skips withou
 | **File menu** | New / Open / Rename / Reset / Save session. |
 | **Account menu** | Trading account, Alpaca API keys, Analytics (`Ctrl+A`) — Sharpe, volatility, drawdown, win rate, equity curve. |
 | **View menu** | Toggle dark/light (`Ctrl+D`); switch the market-data source; focus search. |
+| **Resizing** | The bars between the watchlist, chart and order card — and between the chart and the blotter — are draggable, with minimums so no pane can be dragged out of existence. |
 
 **Limit orders** rest until the market crosses your price (buys fill at/under,
 sells at/over), then execute at the market price on the next tick — even while you
@@ -158,6 +163,13 @@ and needs no options data feed. Market orders fill at the ask (buys) / bid (sell
 for realistic slippage; short positions are **cash-secured** (collateral held out
 of buying power); and expired contracts auto-settle — long ITM exercised, short ITM
 assigned, everything OTM expires worthless.
+
+**The previous interface** is still there: `python run.py --old` runs the
+pre-rework layout (portfolio card, watchlist-with-search rail, chart with its
+range buttons on top, filled area line) against the same sessions, brokers and
+data providers. It lives in `paper_trader/ui_legacy/` and shares every widget
+whose shape didn't change, so there is one implementation of the options chain,
+the blotter tables and the dialogs — only the framing differs.
 
 Sessions and settings are stored under `~/.paper_trader/` (override with
 `PAPER_TRADER_HOME=/some/dir python run.py`).
@@ -206,7 +218,7 @@ show "is allowed to import":
 
 ```
 paper_trader/
-├── run.py                     # launcher (python run.py [--demo] [--home DIR])
+├── run.py                     # launcher (python run.py [--demo] [--old] [--home DIR])
 ├── requirements.txt
 ├── tests/
 │   ├── test_engine.py         # engine, portfolio, analytics, persistence
@@ -253,11 +265,17 @@ paper_trader/
         ├── controllers/
         │   ├── data_feed.py   # QThread worker polling market data
         │   └── broker_feed.py # QThread worker polling the remote broker
-        └── widgets/
-            ├── portfolio_bar.py   price_header.py   chart.py
-            ├── watchlist.py       trade_panel.py
-            ├── options_chain.py   option_ticket.py  options_positions.py
-            └── positions_table.py history_table.py
+        │   └── widgets/
+        │       ├── portfolio_bar.py   price_header.py   chart.py
+        │       ├── watchlist.py       trade_panel.py
+        │       ├── options_chain.py   option_ticket.py  options_positions.py
+        │       └── positions_table.py history_table.py
+        │
+        └── ui_legacy/             # ── THE PREVIOUS UI (run.py --old) ──
+            ├── main_window.py     # the earlier composition root
+            └── widgets/           # only the views whose layout changed:
+                ├── chart.py       price_header.py   portfolio_bar.py
+                └── trade_panel.py watchlist.py
 ```
 
 ### Data flow
