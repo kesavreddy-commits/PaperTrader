@@ -1,0 +1,8 @@
+# Paper Trader — runtime dependencies.
+# External services: Alpaca (paper trading + market data) and Yahoo Finance,
+# both reached with `requests`. Everything else is local UI / math.
+
+PyQt6>=6.6           # native, high-performance desktop GUI toolkit
+pyqtgraph>=0.13.3    # fast, flicker-free real-time plotting (line + candlestick)
+requests>=2.31       # HTTP client for the Alpaca and Yahoo JSON endpoints
+numpy>=1.24          # vectorised math for charts and analytics
