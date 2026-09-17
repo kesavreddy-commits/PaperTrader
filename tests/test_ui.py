@@ -36,7 +36,7 @@ from paper_trader.ui.widgets.history_table import OrdersTable  # noqa: E402
 from paper_trader.ui.widgets.options_positions import OptionsPositionsTable  # noqa: E402
 from paper_trader.ui.widgets.positions_table import PositionsTable  # noqa: E402
 
-anim.ENABLED = False  # deterministic: no tweens mid-assertion
+anim.ENABLED = False  # deterministic: no tweens mid-assertion (see _window)
 
 _checks: list[tuple[str, bool]] = []
 
@@ -48,6 +48,9 @@ def check(name: str, cond: bool) -> None:
 def _window() -> MainWindow:
     theme.apply_theme(app, "dark")
     store = Store()
+    # The window applies the saved animation preference, so express "no tweens
+    # mid-assertion" the way a user would rather than poking the module flag.
+    store.set_setting("animations", False)
     session = Session.new("UI Test", 10_000.0, ["AAPL", "MSFT"])
     store.save_session(session)
     win = MainWindow(session, store, broker_mode="local", data_source="demo",
@@ -303,6 +306,48 @@ def test_chart_controls_do_not_jump() -> None:
     win.close()
 
 
+def test_chart_chrome_switches() -> None:
+    """The line view is bare by default and the Theme menu toggles the rest."""
+    win = _window()
+    chart = win._chart
+    left = chart._plot.getAxis("left")
+    bottom = chart._plot.getAxis("bottom")
+
+    check("line view starts bare", not left.isVisible() and not bottom.isVisible())
+    chart._on_mode_clicked("candles")
+    app.processEvents()
+    check("candles always keep their scales", left.isVisible() and bottom.isVisible())
+    chart._on_mode_clicked("line")
+    app.processEvents()
+    check("line view goes bare again", not left.isVisible())
+
+    win._chrome_actions["axes"].setChecked(True)
+    app.processEvents()
+    check("axes switch turns them on", left.isVisible() and bottom.isVisible())
+    win._chrome_actions["grid"].setChecked(True)
+    app.processEvents()
+    check("gridline switch is recorded", chart.chrome()["grid"])
+    win._chrome_actions["last_price"].setChecked(False)
+    app.processEvents()
+    check("last-price tag can be hidden", not chart._last_label.isVisible())
+
+    # …and the choices survive a restart.
+    settings = win._store.load_settings()
+    check("chart switches persist",
+          settings.get("chart_axes") is True and settings.get("chart_grid") is True
+          and settings.get("chart_last_price") is False)
+    win.close()
+
+    reopened = _window()
+    check("chart switches are restored",
+          reopened._chart.chrome() == {"axes": True, "grid": True, "last_price": False})
+    # Put the defaults back so later checks see a clean slate.
+    for key, value in (("axes", False), ("grid", False), ("last_price", True)):
+        reopened._chrome_actions[key].setChecked(value)
+    app.processEvents()
+    reopened.close()
+
+
 def test_legacy_window_still_runs() -> None:
     """`run.py --old` keeps the previous interface working."""
     from paper_trader.ui_legacy.main_window import MainWindow as LegacyWindow
@@ -340,6 +385,7 @@ def main() -> int:
                test_layout_never_crushes_itself,
                test_splitters_are_draggable_and_bounded,
                test_chart_controls_do_not_jump,
+               test_chart_chrome_switches,
                test_legacy_window_still_runs):
         fn()
     failed = [name for name, ok in _checks if not ok]

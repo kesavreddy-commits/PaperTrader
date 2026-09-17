@@ -210,6 +210,12 @@ class ChartWidget(QWidget):
         self._hover_index: int | None = None
         self._suppress_autoscale = False
         self._reset_visible = False
+        # Chart chrome, driven by the Theme menu. Bare by default: the line view
+        # is a price, not a plot. Candles are the exception — bars are unreadable
+        # without a scale to read them against.
+        self._show_axes = False
+        self._show_grid = False
+        self._show_last_price = True
         # The series is mirrored into numpy arrays: the zoom handler runs on
         # every wheel step and must not walk a Python list of candles each time.
         self._xs = np.empty(0)
@@ -416,6 +422,22 @@ class ChartWidget(QWidget):
         self._lows = np.fromiter((c.low for c in self._candles), float, len(self._candles))
         self._highs = np.fromiter((c.high for c in self._candles), float, len(self._candles))
 
+    def set_chrome(self, *, axes: bool | None = None, grid: bool | None = None,
+                   last_price: bool | None = None) -> None:
+        """Turn the axes, gridlines and last-price tag on or off."""
+        if axes is not None:
+            self._show_axes = bool(axes)
+        if grid is not None:
+            self._show_grid = bool(grid)
+        if last_price is not None:
+            self._show_last_price = bool(last_price)
+        self._sync_axis_visibility()
+        self._render()
+
+    def chrome(self) -> dict[str, bool]:
+        return {"axes": self._show_axes, "grid": self._show_grid,
+                "last_price": self._show_last_price}
+
     def reset_zoom(self) -> None:
         """Frame the whole series again after the user has zoomed in."""
         if not len(self._xs):
@@ -447,15 +469,17 @@ class ChartWidget(QWidget):
     # Rendering
     # ------------------------------------------------------------------ #
     def _sync_axis_visibility(self) -> None:
-        """Both views carry a price and time scale.
+        """Show as much chart furniture as the current settings ask for.
 
-        A bare line is prettier, but you cannot read a level off it: the price
-        axis and faint horizontal rules are what let you see *where* the line is,
-        not just its shape.
+        The line view defaults to bare — no axes, no grid, just the price, its
+        previous-close reference and the crosshair. The candlestick view always
+        keeps its scales: you cannot read bars without them.
         """
-        self._plot.showGrid(x=False, y=True, alpha=0.16)
+        candles = self._mode == "candles"
+        show = self._show_axes or candles
+        self._plot.showGrid(x=False, y=self._show_grid, alpha=0.16)
         for axis in ("bottom", "left"):
-            self._plot.showAxis(axis, show=True)
+            self._plot.showAxis(axis, show=show)
 
     def _trend_colors(self) -> tuple[str, str]:
         """(bright, dim) colours for the current series direction.
@@ -538,12 +562,12 @@ class ChartWidget(QWidget):
         # A periodic data refresh shouldn't re-snap a view the user has zoomed;
         # only a genuinely new dataset re-frames unconditionally.
         self._autoscale_y(force=is_new)
-        self._show_last_price(bright)
+        self._draw_last_price(bright)
         self._last_key = key
 
-    def _show_last_price(self, color: str) -> None:
+    def _draw_last_price(self, color: str) -> None:
         """Mark where the series ends and print the level next to it."""
-        if not len(self._xs):
+        if not len(self._xs) or not self._show_last_price:
             self._last_dot.hide()
             self._last_label.hide()
             return
@@ -562,7 +586,7 @@ class ChartWidget(QWidget):
         Hanging it off the end of the data put it outside the visible range,
         where it was clipped to a stray dollar sign.
         """
-        if self._last_label.isVisible() and len(self._closes):
+        if self._show_last_price and self._last_label.isVisible() and len(self._closes):
             (_x0, x1), _ = self._plot.getViewBox().viewRange()
             self._last_label.setPos(float(x1), float(self._closes[-1]))
 

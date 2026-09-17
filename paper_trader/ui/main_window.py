@@ -165,6 +165,17 @@ class MainWindow(QMainWindow):
         self._broker_mode = broker_mode
         self._data_source = data_source
 
+        # Chart chrome lives in the Theme menu and persists between runs. The
+        # defaults are the bare Robinhood line; the candle view always keeps its
+        # scales regardless (see ChartWidget._sync_axis_visibility).
+        settings = store.load_settings()
+        self._chrome = {
+            "axes": bool(settings.get("chart_axes", False)),
+            "grid": bool(settings.get("chart_grid", False)),
+            "last_price": bool(settings.get("chart_last_price", True)),
+        }
+        anim.ENABLED = bool(settings.get("animations", True))
+
         # Backends.
         self.broker: Broker = self._make_broker(broker_mode)
         self.market: MarketDataService = self._make_market(data_source)
@@ -201,6 +212,7 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._build_ui()
+        self._chart.set_chrome(**self._chrome)
         self._install_nav_controls()
         self._bind_session(session, initial=True)
         self._sync_options_availability()
@@ -394,7 +406,72 @@ class MainWindow(QMainWindow):
         self._nav.add_menu("Market Data", data_menu)
 
         self._nav.add_action("Analytics", self._show_analytics)
-        self._nav.add_action("Theme", self._toggle_theme)
+        appearance = self._appearance_menu()
+        self._nav.add_menu("Theme", appearance)
+        # The menu bar gets the same switches, so they're reachable either way.
+        self._view_chart_menu.addActions(list(self._chrome_actions.values()))
+        self._view_chart_menu.addSeparator()
+        self._view_chart_menu.addAction(self._motion_action)
+
+    def _appearance_menu(self) -> QMenu:
+        """Dark/light plus the switches for how much chart furniture to draw."""
+        menu = QMenu("Theme", self)
+
+        self._theme_group = QActionGroup(self)
+        for label, name in (("Dark", "dark"), ("Light", "light")):
+            act = QAction(label, self, checkable=True)
+            act.setMenuRole(QAction.MenuRole.NoRole)
+            act.setChecked(name == self._theme_name)
+            act.triggered.connect(lambda _=False, n=name: self._set_theme(n))
+            self._theme_group.addAction(act)
+            menu.addAction(act)
+
+        menu.addSeparator()
+        heading = QAction("Chart", self)
+        heading.setEnabled(False)
+        menu.addAction(heading)
+
+        self._chrome_actions: dict[str, QAction] = {}
+        for key, label, tip in (
+            ("axes", "Price && time axes",
+             "Off keeps the line view bare — the candlestick view always shows "
+             "its price and time scales."),
+            ("grid", "Gridlines", "Faint horizontal rules behind the price."),
+            ("last_price", "Last-price tag",
+             "A tag pinned to the right edge with the latest price."),
+        ):
+            act = QAction(label, self, checkable=True)
+            act.setMenuRole(QAction.MenuRole.NoRole)
+            act.setToolTip(tip)
+            act.setChecked(self._chrome[key])
+            act.toggled.connect(lambda on, k=key: self._set_chart_chrome(k, on))
+            menu.addAction(act)
+            self._chrome_actions[key] = act
+
+        menu.addSeparator()
+        motion = QAction("Animations", self, checkable=True)
+        motion.setMenuRole(QAction.MenuRole.NoRole)
+        motion.setToolTip("Rolling numbers, price flashes and the chart's draw-in.")
+        motion.setChecked(anim.ENABLED)
+        motion.toggled.connect(self._set_animations)
+        menu.addAction(motion)
+        self._motion_action = motion
+        return menu
+
+    def _set_chart_chrome(self, key: str, enabled: bool) -> None:
+        self._chrome[key] = enabled
+        self._chart.set_chrome(**{key: enabled})
+        try:
+            self._store.set_setting(f"chart_{key}", enabled)
+        except StoreError:
+            pass
+
+    def _set_animations(self, enabled: bool) -> None:
+        anim.ENABLED = enabled
+        try:
+            self._store.set_setting("animations", enabled)
+        except StoreError:
+            pass
 
     def _build_mode_toggle(self) -> QHBoxLayout:
         """The Stock / Options segmented control above the centre stack."""
@@ -523,6 +600,9 @@ class MainWindow(QMainWindow):
         _add(view_menu, "Toggle &Dark / Light", self._toggle_theme, "Ctrl+D")
         _add(view_menu, "&Find Symbol", lambda: self._nav.focus_search(),
              QKeySequence.StandardKey.Find)
+        view_menu.addSeparator()
+        self._view_chart_menu = view_menu.addMenu("&Chart Display")
+        view_menu.addSeparator()
         source_menu = view_menu.addMenu("Market &Data Source")
         self._source_group = QActionGroup(self)
         for label, source in (("Alpaca (IEX)", "alpaca"), ("Yahoo Finance", "yahoo"),
@@ -1075,6 +1155,8 @@ class MainWindow(QMainWindow):
     def _set_theme(self, name: str) -> None:
         self._theme_name = name
         theme.apply_theme(QApplication.instance(), name)
+        for act in getattr(self, "_theme_group", QActionGroup(self)).actions():
+            act.setChecked(act.text().lower() == name)
         self._chart.apply_theme()
         self._nav.refresh_theme()
         if self._active_quote is not None:
