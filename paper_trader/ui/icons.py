@@ -119,7 +119,7 @@ def icon(name: str, color: str, size: int = 16) -> QIcon:
 
 
 def app_icon() -> QIcon:
-    """The brand mark on a black, square tile — the window and Dock icon.
+    """The brand mark on a black, rounded tile — the window, Dock and app-switcher icon.
 
     Drawn rather than shipped as a file, so it stays in step with the mark in
     the nav bar and needs no asset on disk.
@@ -133,7 +133,9 @@ def app_icon() -> QIcon:
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#0b0c0e"))
         margin = size * 0.06                       # leave the tile's own breathing room
-        painter.drawRect(QRectF(margin, margin, size - 2 * margin, size - 2 * margin))
+        # Rounded like every other Dock icon — the one tile the boxy look leaves alone.
+        painter.drawRoundedRect(QRectF(margin, margin, size - 2 * margin, size - 2 * margin),
+                                size * 0.22, size * 0.22)
         mark = size * 0.52
         offset = (size - mark) / 2
         renderer = QSvgRenderer(QByteArray(_svg("logo", "#00c805")))

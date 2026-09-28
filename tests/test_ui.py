@@ -875,6 +875,14 @@ def test_boxy_look_and_bundled_faces() -> None:
           labels and all(w.font().family() == "Geist" for w in labels))
     win.close()
 
+    from paper_trader.ui import icons
+
+    tile = icons.app_icon().pixmap(256, 256).toImage()
+    inset = int(tile.width() * 0.06) + 3            # just inside the tile's corner
+    check("the app icon keeps its rounded tile (Dock, app switcher)",
+          tile.pixelColor(inset, inset).alpha() == 0
+          and tile.pixelColor(tile.width() // 2, inset).alpha() == 255)
+
     theme.apply_theme(app, "dark", legacy=True)
     check("the classic look keeps its platform font",
           app.font().family() == theme.system_font_family())
