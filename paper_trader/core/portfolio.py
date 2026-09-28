@@ -13,10 +13,14 @@ tested with a hand-written price map.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from ..util import round_money, safe_div
-from .models import Session
+from .models import Session, Side
+
+_ET = ZoneInfo("America/New_York")
+_EPS = 1e-9
 from .options import CONTRACT_MULTIPLIER, collateral_per_contract, price_contract
 
 
@@ -97,9 +101,12 @@ class Portfolio:
         self,
         price_map: dict[str, float],
         prev_close_map: dict[str, float] | None = None,
+        now: datetime | None = None,
     ) -> PortfolioSnapshot:
         prev_close_map = prev_close_map or {}
         session = self.session
+        now = now or datetime.now(timezone.utc)
+        flows = self._todays_equity_flows(trading_day_start(now))
 
         views: list[PositionView] = []
         holdings_value = 0.0
@@ -120,15 +127,12 @@ class Portfolio:
             u_pl = round_money(market_value - cost_basis)
             u_pl_pct = safe_div(u_pl, cost_basis) * 100.0
 
-            prev_close = prev_close_map.get(symbol)
-            if priced and prev_close:
-                d_change = round_money(pos.quantity * (price - prev_close))
-                d_change_pct = safe_div(price - prev_close, prev_close) * 100.0
+            d_change, d_change_pct = _day_change(
+                pos.quantity, price if priced else None,
+                prev_close_map.get(symbol), flows.get(symbol))
+            if d_change is not None:
                 day_change_total += d_change
                 have_day_change = True
-            else:
-                d_change = None
-                d_change_pct = None
 
             holdings_value += market_value
             invested += cost_basis
@@ -151,8 +155,15 @@ class Portfolio:
                 )
             )
 
+        for symbol, flow in flows.items():
+            if symbol in session.positions:
+                continue
+            d_change, _pct = _day_change(0.0, 0.0, prev_close_map.get(symbol), flow)
+            if d_change is not None:
+                day_change_total += d_change
+                have_day_change = True
+
         # --- options: value each leg at its live Black-Scholes mark -------- #
-        now = datetime.now(timezone.utc)
         option_views: list[OptionPositionView] = []
         options_value = 0.0
         options_collateral = 0.0
@@ -253,6 +264,75 @@ class Portfolio:
             options_value=options_value,
             options_collateral=options_collateral,
         )
+
+
+    def _todays_equity_flows(self, day_start: datetime) -> dict[str, "_DayFlow"]:
+        """Per-symbol share and cash flows from equity fills since ``day_start``."""
+        flows: dict[str, _DayFlow] = {}
+        # Trades are append-only, so today's are at the end of the list.
+        for trade in reversed(self.session.trades):
+            if trade.is_option:
+                continue
+            ts = trade.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts < day_start:
+                break
+            flow = flows.setdefault(trade.symbol, _DayFlow())
+            if trade.side is Side.BUY:
+                flow.bought += trade.quantity
+                flow.bought_cost += trade.gross + trade.fees
+            else:
+                flow.sold += trade.quantity
+            flow.cash_in -= trade.cash_flow
+        return flows
+
+
+@dataclass(slots=True)
+class _DayFlow:
+    bought: float = 0.0       # shares bought today
+    sold: float = 0.0         # shares sold today
+    bought_cost: float = 0.0  # cash spent on today's buys
+    cash_in: float = 0.0      # net cash put into the symbol today (buys - sells)
+
+
+def trading_day_start(now: datetime) -> datetime:
+    """Midnight ET of the trading day the previous close is measured from.
+
+    Weekends roll back to Friday: over a weekend the quote's "today" is still
+    Friday's session, so a Friday buy is still one of today's.
+    """
+    day = now.astimezone(_ET).date()
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return datetime.combine(day, time.min, tzinfo=_ET)
+
+
+def _day_change(
+    quantity: float,
+    price: float | None,
+    prev_close: float | None,
+    flow: _DayFlow | None,
+) -> tuple[float | None, float | None]:
+    """Today's $ and % change of one symbol's holding.
+
+    Shares held since before today are measured from the previous close;
+    shares bought today from what was paid for them; shares sold today
+    contribute their proceeds. Equivalently: value now, minus value at the
+    start of the day, minus the net cash put in since.
+    """
+    if price is None:
+        return None, None
+    flow = flow or _DayFlow()
+    held_from_before = quantity - flow.bought + flow.sold
+    if held_from_before < _EPS:
+        held_from_before = 0.0
+    elif not prev_close:
+        return None, None
+    start_value = held_from_before * (prev_close or 0.0)
+    change = round_money(quantity * price - start_value - flow.cash_in)
+    base = start_value + flow.bought_cost
+    return change, safe_div(change, base) * 100.0
 
 
 def _with_weight(view: PositionView, weight: float) -> PositionView:

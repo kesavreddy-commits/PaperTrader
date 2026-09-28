@@ -111,7 +111,9 @@ def test_portfolio() -> None:
     check("total = cash + holdings", approx(snap.total_value, snap.cash + snap.holdings_value))
     check("holdings valued at live price", approx(snap.holdings_value, 5 * 255.0))
     check("unrealized P/L", approx(snap.unrealized_pl, 5 * (255 - 250), 0.02))
-    check("day change vs prev close", approx(snap.day_change, 5 * (255 - 248), 0.02))
+    check("same-day buy: today's change is from the fill", approx(snap.day_change, 5 * (255 - 250), 0.02))
+    later = Portfolio(s).snapshot({"MSFT": 255.0}, {"MSFT": 248.0}, now=_WED + timedelta(days=365))
+    check("held position: today's change vs prev close", approx(later.day_change, 5 * (255 - 248), 0.02))
     check("weights sum to ~holdings share",
           approx(sum(p.weight for p in snap.positions), snap.holdings_value / snap.total_value, 0.001))
 
@@ -211,12 +213,86 @@ def test_analytics_counts_option_closes() -> None:
     check("option close feeds avg win", report.avg_win is not None and report.avg_win > 0)
 
 
+# A fixed Wednesday, 13:00 ET, so "today" never depends on when the suite runs.
+_WED = datetime(2030, 1, 9, 18, 0, tzinfo=timezone.utc)
+
+
+def _backdate(session, when: datetime) -> None:
+    """Stamp the most recent fill as having happened at ``when``."""
+    session.trades[-1].timestamp = when
+
+
+def test_day_change_counts_from_when_shares_were_bought() -> None:
+    """Today's P/L measures today's buys from their fill, not the previous close."""
+    # A fresh account that buys at the market price hasn't moved today.
+    s = Session.new("D", 10_000.0, ["NVDA"])
+    TradingEngine(s).market_buy("NVDA", 225.05, quantity=12)
+    snap = Portfolio(s).snapshot({"NVDA": 225.05}, {"NVDA": 224.58})
+    check("bought today at an unchanged price: $0 today", approx(snap.day_change, 0.0))
+    check("bought today: row shows $0 today", approx(snap.positions[0].day_change, 0.0))
+    check("bought today: today % is 0", approx(snap.day_change_pct, 0.0, 1e-6))
+    check("account still worth the starting balance", approx(snap.total_value, 10_000.0))
+    # ...and needs no previous close to know that.
+    bare = Portfolio(s).snapshot({"NVDA": 226.05}, {})
+    check("bought today: works without a prev close", approx(bare.day_change, 12 * 1.0))
+
+    # 10 held from before today + 5 bought today.
+    s = Session.new("M", 10_000.0, ["X"])
+    eng = TradingEngine(s)
+    eng.market_buy("X", 90.0, quantity=10)
+    _backdate(s, _WED - timedelta(days=2))
+    eng.market_buy("X", 102.0, quantity=5)
+    _backdate(s, _WED - timedelta(hours=1))
+    snap = Portfolio(s).snapshot({"X": 103.0}, {"X": 100.0}, now=_WED)
+    check("mixed: old shares vs prev close + new shares vs fill",
+          approx(snap.day_change, 10 * 3 + 5 * 1))
+    check("mixed: today % over the capital at stake today",
+          approx(snap.positions[0].day_change_pct, 35 / (10 * 100 + 5 * 102) * 100, 1e-6))
+
+    # Selling part of an older holding today books the sale into today.
+    s = Session.new("S", 10_000.0, ["X"])
+    eng = TradingEngine(s)
+    eng.market_buy("X", 90.0, quantity=10)
+    _backdate(s, _WED - timedelta(days=2))
+    eng.market_sell("X", 104.0, quantity=4)
+    _backdate(s, _WED - timedelta(hours=1))
+    snap = Portfolio(s).snapshot({"X": 103.0}, {"X": 100.0}, now=_WED)
+    check("partial sell today: sold shares' move + held shares' move",
+          approx(snap.day_change, 4 * 4 + 6 * 3))
+
+    # Closing a position out today still moved the account today.
+    s = Session.new("C", 10_000.0, ["X"])
+    eng = TradingEngine(s)
+    eng.market_buy("X", 90.0, quantity=10)
+    _backdate(s, _WED - timedelta(days=2))
+    eng.market_sell("X", 104.0, quantity=10)
+    _backdate(s, _WED - timedelta(hours=1))
+    snap = Portfolio(s).snapshot({"X": 103.0}, {"X": 100.0}, now=_WED)
+    check("closed out today: no rows left", not snap.positions)
+    check("closed out today: the sale is today's change", approx(snap.day_change, 10 * 4))
+    check("closed out today: day change matches the account's move",
+          approx(snap.total_value - snap.day_change, 10_000.0 - 10 * 90 + 10 * 100))
+
+    # Over a weekend "today" is still Friday's session.
+    s = Session.new("W", 10_000.0, ["X"])
+    TradingEngine(s).market_buy("X", 101.0, quantity=2)
+    friday_afternoon = datetime(2030, 1, 11, 20, 0, tzinfo=timezone.utc)
+    _backdate(s, friday_afternoon)
+    saturday = datetime(2030, 1, 12, 16, 0, tzinfo=timezone.utc)
+    snap = Portfolio(s).snapshot({"X": 102.0}, {"X": 100.0}, now=saturday)
+    check("weekend: a Friday buy is still measured from its fill", approx(snap.day_change, 2 * 1.0))
+    monday = datetime(2030, 1, 14, 16, 0, tzinfo=timezone.utc)
+    snap = Portfolio(s).snapshot({"X": 102.0}, {"X": 101.5}, now=monday)
+    check("next session: the same shares use the prev close", approx(snap.day_change, 2 * 0.5))
+
+
 def main() -> int:
     for fn in (test_market_orders_and_validation, test_limit_orders, test_portfolio,
                test_analytics, test_persistence_roundtrip,
                test_committed_shares_block_market_sells, test_prune_inactive_orders,
                test_session_listing_survives_a_bad_timestamp,
-               test_analytics_counts_option_closes):
+               test_analytics_counts_option_closes,
+               test_day_change_counts_from_when_shares_were_bought):
         fn()
     failed = [name for name, ok in _checks if not ok]
     for name, ok in _checks:
