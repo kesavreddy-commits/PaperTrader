@@ -1,25 +1,15 @@
-"""Modal dialogs: create a session, open/manage sessions, API keys, analytics.
-
-They share the page's language: a bold title, a quiet line saying what the
-dialog is for, fields in the card style, and the green pill as the default
-action. The analytics view draws its equity curve the way the main chart
-draws a price — the line in the gain/loss colour over a dotted reference (the
-starting balance) — and says plainly when there isn't enough history yet
-rather than showing an empty plot with meaningless axes.
-"""
+"""Modal dialogs: create a session, open/manage sessions, and view analytics."""
 
 from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtCore import QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -28,8 +18,6 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QStyle,
-    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
@@ -39,42 +27,14 @@ from ..core.analytics import AnalyticsReport, compute_analytics
 from ..core.models import Session
 from ..credentials import is_paper_endpoint, load_alpaca, save_alpaca
 from ..persistence.store import SessionInfo, Store, StoreError
-from . import theme
-from .format import (
+from ..ui import theme
+from ..ui.format import (
     fmt_datetime,
     fmt_money,
     fmt_pct,
     fmt_signed_money,
     fmt_signed_pct,
 )
-
-
-def _header(root: QVBoxLayout, title: str, subtitle: str = "") -> None:
-    """The title (and a line of what the dialog is for) atop every dialog."""
-    head = QLabel(title)
-    head.setObjectName("H2")
-    root.addWidget(head)
-    if subtitle:
-        sub = QLabel(subtitle)
-        sub.setObjectName("Muted")
-        sub.setWordWrap(True)
-        sub.setTextFormat(Qt.TextFormat.RichText)
-        root.addWidget(sub)
-    root.addSpacing(6)
-
-
-def _form() -> QFormLayout:
-    form = QFormLayout()
-    form.setHorizontalSpacing(16)
-    form.setVerticalSpacing(12)
-    form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-    return form
-
-
-def _field_label(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setObjectName("Muted")
-    return label
 
 
 # --------------------------------------------------------------------------- #
@@ -86,15 +46,9 @@ class NewSessionDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("New Session")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(360)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 20)
-        root.setSpacing(10)
-        _header(root, "New local session",
-                "A fresh simulated portfolio with its own cash, positions and history.")
-
-        form = _form()
+        form = QFormLayout()
         self._name = QLineEdit("My Portfolio")
         self._balance = QDoubleSpinBox()
         self._balance.setRange(1.0, 1_000_000_000.0)
@@ -102,19 +56,17 @@ class NewSessionDialog(QDialog):
         self._balance.setGroupSeparatorShown(True)
         self._balance.setPrefix("$ ")
         self._balance.setValue(DEFAULT_STARTING_BALANCE)
-        self._balance.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        form.addRow(_field_label("Name"), self._name)
-        form.addRow(_field_label("Starting balance"), self._balance)
-        root.addLayout(form)
-        root.addSpacing(8)
-        root.addStretch(1)
+        form.addRow("Name", self._name)
+        form.addRow("Starting balance", self._balance)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Create session")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+
+        root = QVBoxLayout(self)
+        root.addLayout(form)
         root.addWidget(buttons)
 
     def result_session(self) -> Session:
@@ -134,30 +86,29 @@ class AlpacaKeysDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Alpaca API Keys")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(460)
         creds = load_alpaca()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 20)
-        root.setSpacing(10)
-        _header(root, "Alpaca API keys",
-                "Connect a free Alpaca <b>paper</b> account. Create keys at "
-                "alpaca.markets → Paper Trading → API Keys. They're saved locally to "
-                "~/.paper_trader/credentials.json (chmod 600) — never in the project.")
+        blurb = QLabel(
+            "Connect a free Alpaca <b>paper</b> account. Create keys at "
+            "alpaca.markets → Paper Trading → API Keys. They're saved locally to "
+            "~/.paper_trader/credentials.json (chmod 600) — never in the project.")
+        blurb.setObjectName("Muted")
+        blurb.setWordWrap(True)
+        root.addWidget(blurb)
 
-        form = _form()
+        form = QFormLayout()
         self._key = QLineEdit(creds.key_id if creds else "")
         self._key.setPlaceholderText("PK…")
         self._secret = QLineEdit(creds.secret_key if creds else "")
-        self._secret.setPlaceholderText("Secret key")
+        self._secret.setPlaceholderText("secret")
         self._secret.setEchoMode(QLineEdit.EchoMode.Password)
         self._endpoint = QLineEdit(creds.base_url if creds else DEFAULT_PAPER_ENDPOINT)
-        form.addRow(_field_label("API key ID"), self._key)
-        form.addRow(_field_label("API secret"), self._secret)
-        form.addRow(_field_label("Endpoint"), self._endpoint)
+        form.addRow("API Key ID", self._key)
+        form.addRow("API Secret", self._secret)
+        form.addRow("Endpoint", self._endpoint)
         root.addLayout(form)
-        root.addSpacing(8)
-        root.addStretch(1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -192,29 +143,19 @@ class AlpacaKeysDialog(QDialog):
 # --------------------------------------------------------------------------- #
 # Open / manage sessions
 # --------------------------------------------------------------------------- #
-_SESSION_ID = Qt.ItemDataRole.UserRole
-_SESSION_NAME = Qt.ItemDataRole.UserRole + 1
-_SESSION_DETAIL = Qt.ItemDataRole.UserRole + 2
-_SESSION_CURRENT = Qt.ItemDataRole.UserRole + 3
-
-
 class OpenSessionDialog(QDialog):
     """Lists saved sessions to open or delete."""
 
     def __init__(self, store: Store, current_id: str | None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Open Session")
-        self.setMinimumSize(520, 380)
+        self.setMinimumSize(460, 340)
         self._store = store
         self._selected_id: str | None = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 20)
-        root.setSpacing(10)
-        _header(root, "Saved sessions", "Pick a local session to open. Double-click opens it.")
+        root.addWidget(QLabel("Saved sessions"))
         self._list = QListWidget()
-        self._list.setItemDelegate(_SessionDelegate(self._list))
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.itemDoubleClicked.connect(lambda _: self._accept_selected())
         root.addWidget(self._list, 1)
 
@@ -243,7 +184,7 @@ class OpenSessionDialog(QDialog):
 
     def _current_info_id(self) -> str | None:
         item = self._list.currentItem()
-        return item.data(_SESSION_ID) if item else None
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _accept_selected(self) -> None:
         sid = self._current_info_id()
@@ -274,57 +215,13 @@ class OpenSessionDialog(QDialog):
 
 
 def _session_item(info: SessionInfo, is_current: bool) -> QListWidgetItem:
-    detail = (f"Cash {fmt_money(info.cash)}  ·  {info.num_positions} positions  ·  "
-              f"{info.num_trades} trades  ·  updated {fmt_datetime(info.updated_at)}")
-    item = QListWidgetItem(info.name)
-    item.setData(_SESSION_ID, info.id)
-    item.setData(_SESSION_NAME, info.name)
-    item.setData(_SESSION_DETAIL, detail)
-    item.setData(_SESSION_CURRENT, is_current)
-    item.setSizeHint(QSize(0, 58))
+    tag = "   (current)" if is_current else ""
+    text = (f"{info.name}{tag}\n"
+            f"    Cash {fmt_money(info.cash)}  ·  {info.num_positions} positions  ·  "
+            f"{info.num_trades} trades  ·  updated {fmt_datetime(info.updated_at)}")
+    item = QListWidgetItem(text)
+    item.setData(Qt.ItemDataRole.UserRole, info.id)
     return item
-
-
-class _SessionDelegate(QStyledItemDelegate):
-    """A saved session: its name (and whether it's open) over its figures."""
-
-    def sizeHint(self, option, index) -> QSize:  # noqa: N802 (Qt naming)
-        return QSize(option.rect.width(), 58)
-
-    def paint(self, painter: QPainter, option, index) -> None:
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(option.rect.adjusted(2, 2, -2, -2))
-        if option.state & (QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver):
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(theme.color("menu_hover")))
-            painter.drawRoundedRect(rect, 6, 6)
-        inner = rect.adjusted(12, 8, -12, -8)
-        base = QFont(option.font)
-        bold = QFont(base)
-        bold.setWeight(QFont.Weight.Bold)
-        small = QFont(base)
-        small.setPointSizeF(max(8.0, base.pointSizeF() - 1.0))
-        half = inner.height() / 2
-        name = index.data(_SESSION_NAME) or ""
-        painter.setFont(bold)
-        painter.setPen(QColor(theme.color("text")))
-        painter.drawText(QRectF(inner.left(), inner.top(), inner.width(), half),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
-        if index.data(_SESSION_CURRENT):
-            x = inner.left() + QFontMetrics(bold).horizontalAdvance(name) + 10
-            painter.setFont(small)
-            painter.setPen(QColor(theme.color("green")))
-            painter.drawText(QRectF(x, inner.top(), inner.width(), half),
-                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                             "Open now")
-        painter.setFont(small)
-        painter.setPen(QColor(theme.color("text_muted")))
-        detail = QFontMetrics(small).elidedText(
-            index.data(_SESSION_DETAIL) or "", Qt.TextElideMode.ElideRight, int(inner.width()))
-        painter.drawText(QRectF(inner.left(), inner.top() + half, inner.width(), half),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, detail)
-        painter.restore()
 
 
 # --------------------------------------------------------------------------- #
@@ -336,19 +233,20 @@ class AnalyticsDialog(QDialog):
     def __init__(self, session: Session, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Analytics — {session.name}")
-        self.setMinimumSize(680, 600)
+        self.setMinimumSize(620, 560)
         report = compute_analytics(session)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 20)
-        root.setSpacing(12)
-        _header(root, "Performance", session.name)
+        root.setSpacing(14)
+
+        title = QLabel("Performance")
+        title.setObjectName("H2")
+        root.addWidget(title)
 
         root.addLayout(_metrics_grid(report))
-        root.addSpacing(6)
 
-        eq_title = QLabel("Equity curve")
-        eq_title.setObjectName("H3")
+        eq_title = QLabel("EQUITY CURVE")
+        eq_title.setObjectName("SectionTitle")
         root.addWidget(eq_title)
         root.addWidget(_equity_plot(session), 1)
 
@@ -366,18 +264,18 @@ class AnalyticsDialog(QDialog):
 
 
 def _metric_tile(title: str, value: str, color: str | None = None) -> QWidget:
-    w = QFrame()
-    w.setObjectName("Box")
+    w = QWidget()
     box = QVBoxLayout(w)
-    box.setContentsMargins(14, 11, 14, 12)
-    box.setSpacing(4)
-    t = QLabel(title)
-    t.setObjectName("StatTitle")
+    box.setContentsMargins(12, 10, 12, 10)
+    box.setSpacing(2)
+    t = QLabel(title.upper())
+    t.setObjectName("Faint")
+    t.setStyleSheet("font-size: 10px; letter-spacing: 0.5px;")
     v = QLabel(value)
-    v.setFont(theme.tabular(v.font()))
-    v.setStyleSheet("font-size: 20px; font-weight: 600;" + (f" color: {color};" if color else ""))
+    v.setStyleSheet("font-size: 20px; font-weight: 700;" + (f" color: {color};" if color else ""))
     box.addWidget(t)
     box.addWidget(v)
+    w.setObjectName("Card")
     return w
 
 
@@ -392,21 +290,21 @@ def _metrics_grid(r: AnalyticsReport) -> QGridLayout:
         return fmt_signed_money(v) if v is not None else "—"
 
     tiles = [
-        ("Total return", money(r.total_return),
+        ("Total Return", money(r.total_return),
          theme.color_for(r.total_return or 0) if r.total_return is not None else None),
-        ("Total return %", pct(r.total_return_pct),
+        ("Total Return %", pct(r.total_return_pct),
          theme.color_for(r.total_return_pct or 0) if r.total_return_pct is not None else None),
         ("Realized P/L", fmt_signed_money(r.realized_pl), theme.color_for(r.realized_pl)),
-        ("Sharpe ratio", f"{r.sharpe_ratio:.2f}" if r.sharpe_ratio is not None else "—", None),
-        ("Volatility (annualized)",
+        ("Sharpe Ratio", f"{r.sharpe_ratio:.2f}" if r.sharpe_ratio is not None else "—", None),
+        ("Volatility (ann.)",
          fmt_pct(r.annualized_volatility_pct) if r.annualized_volatility_pct is not None else "—",
          None),
-        ("Max drawdown",
+        ("Max Drawdown",
          fmt_pct(r.max_drawdown_pct) if r.max_drawdown_pct is not None else "—",
          theme.loss_color() if r.max_drawdown_pct else None),
         ("Trades", str(r.num_trades), None),
-        ("Win rate", fmt_pct(r.win_rate) if r.win_rate is not None else "—", None),
-        ("Avg win / loss",
+        ("Win Rate", fmt_pct(r.win_rate) if r.win_rate is not None else "—", None),
+        ("Avg Win / Loss",
          f"{fmt_money(r.avg_win) if r.avg_win else '—'} / "
          f"{fmt_money(r.avg_loss) if r.avg_loss else '—'}", None),
     ]
@@ -417,45 +315,28 @@ def _metrics_grid(r: AnalyticsReport) -> QGridLayout:
 
 def _equity_plot(session: Session) -> QWidget:
     colors = theme.chart_colors()
-    points = session.equity_curve
-    if len(points) < 2:
-        # An empty plot draws meaningless axes; say what's missing instead.
-        empty = QFrame()
-        empty.setObjectName("Box")
-        empty.setMinimumHeight(180)
-        lay = QVBoxLayout(empty)
-        msg = QLabel("Not enough history yet — the curve fills in as your portfolio's "
-                     "value is recorded over time.")
-        msg.setObjectName("Muted")
-        msg.setWordWrap(True)
-        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(msg)
-        return empty
-
     plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
     plot.setBackground(colors["background"])
     plot.setMenuEnabled(False)
-    plot.setMouseEnabled(x=False, y=False)
-    plot.hideButtons()
-    plot.setFrameShape(QFrame.Shape.NoFrame)
-    tick_font = QFont(theme.ui_font_family())
-    tick_font.setPixelSize(11)
+    plot.showGrid(x=True, y=True, alpha=0.15)
     for axis in ("bottom", "left"):
-        ax = plot.getAxis(axis)
-        ax.setPen(pg.mkPen(colors["axis"]))
-        ax.setTextPen(pg.mkPen(colors["text"]))
-        ax.setStyle(tickFont=tick_font, tickLength=4)
-    plot.getAxis("left").setWidth(70)
+        plot.getAxis(axis).setPen(pg.mkPen(colors["axis"]))
+        plot.getAxis(axis).setTextPen(pg.mkPen(colors["text"]))
 
-    xs = np.array([p.time.timestamp() for p in points], dtype=float)
-    ys = np.array([p.value for p in points], dtype=float)
-    color = colors["up"] if ys[-1] >= session.starting_balance else colors["down"]
-    fill = pg.mkColor(color)
-    fill.setAlpha(28)
-    plot.plot(xs, ys, pen=pg.mkPen(color, width=2),
-              fillLevel=float(min(ys.min(), session.starting_balance)), brush=fill)
-    dots = pg.mkPen(colors["baseline"], width=1.6)
-    dots.setCapStyle(Qt.PenCapStyle.RoundCap)
-    dots.setDashPattern([0.01, 3.4])
-    plot.addItem(pg.InfiniteLine(pos=session.starting_balance, angle=0, pen=dots))
+    points = session.equity_curve
+    if len(points) >= 2:
+        xs = np.array([p.time.timestamp() for p in points], dtype=float)
+        ys = np.array([p.value for p in points], dtype=float)
+        up = ys[-1] >= ys[0]
+        color = colors["up"] if up else colors["down"]
+        fill = pg.mkColor(color); fill.setAlpha(40)
+        plot.plot(xs, ys, pen=pg.mkPen(color, width=2),
+                  fillLevel=float(ys.min()), brush=fill)
+        base = pg.InfiniteLine(pos=session.starting_balance, angle=0,
+                               pen=pg.mkPen(colors["text"], style=Qt.PenStyle.DashLine))
+        plot.addItem(base)
+    else:
+        text = pg.TextItem("Not enough history yet — trade over multiple days to build a curve.",
+                           color=colors["text"])
+        plot.addItem(text)
     return plot

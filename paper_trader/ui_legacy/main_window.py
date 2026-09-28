@@ -57,7 +57,7 @@ from ..persistence.store import Store, StoreError
 from ..ui import anim, theme
 from ..ui.controllers.broker_feed import BrokerFeed
 from ..ui.controllers.data_feed import DataFeed
-from ..ui.dialogs import (
+from .dialogs import (
     AlpacaKeysDialog,
     AnalyticsDialog,
     NewSessionDialog,

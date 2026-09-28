@@ -11,9 +11,9 @@ Qt on its own only lights the one cell under the cursor.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, Qt
 from collections.abc import Sequence
 
+from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QAbstractItemView,
