@@ -12,7 +12,7 @@ env/
 # Local app data (sessions/settings live in ~/.paper_trader by default, but if
 # a developer points PAPER_TRADER_HOME here, don't commit their portfolio)
 .paper_trader/
-data/
+/data/
 
 # Secrets — credentials live in ~/.paper_trader, but never commit a stray copy
 credentials.json
