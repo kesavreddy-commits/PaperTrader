@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ.setdefault("PAPER_TRADER_HOME", tempfile.mkdtemp(prefix="pt_uitest_"))
 
+from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 app = QApplication.instance() or QApplication([])
@@ -30,6 +31,7 @@ from paper_trader.data.models import Quote  # noqa: E402
 from paper_trader.data.market_data import SyntheticProvider  # noqa: E402
 from paper_trader.persistence.store import Store  # noqa: E402
 from paper_trader.ui import anim, theme  # noqa: E402
+from paper_trader.ui.format import fmt_money, fmt_price, fmt_signed_money, fmt_signed_pct  # noqa: E402
 from paper_trader.ui.main_window import MainWindow  # noqa: E402
 from paper_trader.ui.widgets.chart import ChartWidget  # noqa: E402
 from paper_trader.ui.widgets.history_table import OrdersTable  # noqa: E402
@@ -84,8 +86,11 @@ def test_chart_zoom_refits_price_axis() -> None:
         (x0, x1), (y0, y1) = vb.viewRange()
         full_span = y1 - y0
 
-        mid = (x0 + x1) / 2
-        half = (x1 - x0) * 0.05
+        # Zoom around the middle of the *data*: a live 1D chart frames the whole
+        # trading day, so the middle of the view can be an empty afternoon.
+        first, last = candles[0].epoch, candles[-1].epoch
+        mid = (first + last) / 2
+        half = (last - first) * 0.05
         vb.setXRange(mid - half, mid + half, padding=0)
         app.processEvents()
         (zx0, zx1), (zy0, zy1) = vb.viewRange()
@@ -229,23 +234,43 @@ def test_unknown_symbol_never_joins_the_watchlist() -> None:
 
 
 def test_layout_never_crushes_itself() -> None:
-    """Every pane must keep at least its own minimum at any window size.
+    """Every pane keeps at least its own minimum, at any size and in any view.
 
-    Setting an explicit minimumHeight on a pane overrides the minimum its layout
-    computed, which is how the order card once ended up drawn on top of itself.
+    Qt doesn't clip a widget that is given less than its minimum — it draws the
+    children on top of each other (range tabs over the chart's time axis, one
+    card over another). Checked down to the window's real minimum size, for
+    the line, candle and options views.
     """
     win = _window()
-    for width, height in ((1160, 820), (1440, 900), (1560, 980), (1800, 1120)):
-        win.resize(width, height)
-        app.processEvents()
-        for name, widget in (("order card", win._trade_panel),
-                             ("price hero", win._price_header),
-                             ("day stats", win._day_stats)):
-            need = widget.minimumSizeHint().height()
-            check(f"{width}x{height}: {name} keeps its height",
-                  widget.height() >= need)
-        check(f"{width}x{height}: chart keeps usable height",
-              win._chart._plot.height() >= 180)
+    win._on_quote(_quote("AAPL", 100.0, 99.0))
+    floor = win.minimumSize()
+    sizes = ((floor.width(), floor.height()), (1440, 900), (1560, 980), (1800, 1120))
+    for width, height in sizes:
+        for view in ("line", "candles", "options"):
+            win._set_market_mode("options" if view == "options" else "stock")
+            if view != "options":
+                win._chart._on_mode_clicked(view)
+            win.resize(width, height)
+            app.processEvents()
+            panes = [("price hero", win._price_header)]
+            if view == "options":
+                panes += [("option ticket", win._option_ticket), ("chain", win._options_chain)]
+            else:
+                panes += [("order card", win._trade_panel), ("chart", win._chart)]
+            if not win._day_stats.isHidden():
+                panes.append(("key stats", win._day_stats))
+            for name, widget in panes:
+                need = widget.minimumSizeHint().height()
+                check(f"{width}x{height} {view}: {name} keeps its height",
+                      widget.height() >= need)
+            if view != "options":
+                check(f"{width}x{height} {view}: chart keeps usable height",
+                      win._chart._plot.height() >= 180)
+    win._set_market_mode("stock")
+    win.resize(1560, 980)
+    app.processEvents()
+    check("a roomy window has space for the key statistics", not win._day_stats.isHidden())
+    win._chart._on_mode_clicked("line")
     win.close()
 
 
@@ -292,17 +317,25 @@ def test_chart_controls_do_not_jump() -> None:
     chart.set_candles("AAPL", "1D", candles)
     app.processEvents()
 
-    buttons = [b for b in chart.findChildren(type(chart._reset_btn))
-               if b.text() in ("Line", "Candles")]
-    before = [b.x() for b in buttons]
+    button = type(chart._reset_btn)
+    tabs = [b for b in chart.findChildren(button) if b.objectName() == "RangeTab"]
+    toggles = chart.mode_toggle.findChildren(button)
+    check("range tabs and the Line/Candles switch are on screen",
+          len(tabs) == 8 and len(toggles) == 2 and all(t.isVisible() for t in toggles))
+
+    def where():
+        return [b.mapTo(win, b.rect().topLeft()) for b in tabs + toggles]
+
+    before = where()
     vb = chart._plot.getViewBox()
-    (x0, x1), _ = vb.viewRange()
-    mid = (x0 + x1) / 2
-    vb.setXRange(mid - (x1 - x0) * 0.05, mid + (x1 - x0) * 0.05, padding=0)
+    first, last = candles[0].epoch, candles[-1].epoch
+    mid = (first + last) / 2
+    vb.setXRange(mid - (last - first) * 0.05, mid + (last - first) * 0.05, padding=0)
     chart._hover_label.setText("O $1,234.56   H $1,234.56   L $1,234.56   C $1,234.56")
     app.processEvents()
-    check("Line/Candles stay put when the reset button and readout appear",
-          [b.x() for b in buttons] == before)
+    check("reset button appears when zoomed", not chart._reset_btn.isHidden())
+    check("tabs and Line/Candles stay put when the reset button and readout appear",
+          where() == before)
     win.close()
 
 
@@ -382,6 +415,140 @@ def test_buy_button_keeps_its_fill() -> None:
     win.close()
 
 
+def test_chart_scrub_drives_the_hero() -> None:
+    """Hovering the chart shows that point's price in the hero; leaving restores it."""
+    win = _window()
+    win._on_quote(_quote("AAPL", 100.0, 98.0))
+    _q, candles = SyntheticProvider().fetch_chart("AAPL", "1D")
+    chart = win._chart
+    chart.set_candles("AAPL", "1D", candles)
+    app.processEvents()
+    header = win._price_header
+    target = candles[len(candles) // 3]
+    vb = chart._plot.getViewBox()
+    chart._on_mouse_moved(vb.mapViewToScene(QPointF(target.epoch, target.close)))
+    app.processEvents()
+    check("scrubbing shows the hovered price", header._price_label.text() == fmt_price(target.close))
+    check("the change is measured to the hovered point",
+          fmt_signed_money(target.close - 98.0) in header._change_label.text())
+    chart._hide_crosshair()
+    app.processEvents()
+    check("leaving the chart restores the live price",
+          header._price_label.text() == fmt_price(100.0))
+    win.close()
+
+
+def test_hero_follows_the_chart_range() -> None:
+    """"Today" on 1D; "Past week", from the range's first price, on 1W."""
+    win = _window()
+    win._on_quote(_quote("AAPL", 110.0, 100.0))
+    header = win._price_header
+    text = header._change_label.text()
+    check("1D measures from the previous close", "+$10.00" in text and "Today" in text)
+    win._chart._on_range_clicked("1W")
+    check("a new range shows no change until its data arrives",
+          header._change_label.text() == "")
+    _q, week = SyntheticProvider().fetch_chart("AAPL", "1W")
+    win._on_chart("AAPL", "1W", week)
+    start = week[0].open or week[0].close
+    text = header._change_label.text()
+    check("1W reads 'Past week'", "Past week" in text)
+    check("1W measures from the range's first price", fmt_signed_money(110.0 - start) in text)
+    win.close()
+
+
+def test_accent_follows_the_stocks_day() -> None:
+    """Like the reference, the card's pill and outlines turn orange on a down day."""
+    win = _window()
+    pill = win._trade_panel._submit
+    win._on_quote(_quote("AAPL", 95.0, 100.0))
+    check("a down day turns the accent orange",
+          pill.property("accent") == "down" and win._options_cta.property("accent") == "down")
+    win._on_quote(_quote("AAPL", 105.0, 100.0))
+    check("an up day turns it back", pill.property("accent") == "up")
+    win.close()
+
+
+def test_watchlist_rows_survive_a_list_change() -> None:
+    """Adding a symbol rebuilds the list; the existing rows keep their data."""
+    from paper_trader.ui.widgets.watchlist import _PRICE, _SPARK, WatchlistPanel
+
+    panel = WatchlistPanel()
+    panel.set_watchlist(["AAPL", "MSFT"])
+    panel.update_quotes({"AAPL": _quote("AAPL", 101.0, 100.0)})
+    panel.update_sparklines({"AAPL": [100.0, 100.5, 101.0]})
+    panel.add_symbol("NVDA", select=False)
+    item = panel._items["AAPL"]
+    check("a row keeps its price across a rebuild", item.data(_PRICE) == 101.0)
+    check("a row keeps its sparkline across a rebuild",
+          tuple(item.data(_SPARK)) == (100.0, 100.5, 101.0))
+    check("the new symbol joins the list", panel.symbols() == ["AAPL", "MSFT", "NVDA"])
+
+
+def test_notices_surface_as_toasts() -> None:
+    """Fills and errors show as toasts; an error one goes once data flows again."""
+    win = _window()
+    win._status("Bought 1 AAPL @ $100.00", 4000)
+    check("a fill shows as a success toast",
+          win._toast.text().startswith("Bought") and win._toast.kind() == "success")
+    win._on_feed_error("network", "Rate limited by data provider.")
+    check("an error shows as an error toast, icon instead of the ⚠",
+          win._toast.kind() == "error" and "⚠" not in win._toast.text())
+    win._on_quote(_quote("AAPL", 101.0, 100.0))
+    app.processEvents()
+    check("the error toast goes once data flows", win._toast.text() == "")
+    win.close()
+
+
+def test_money_never_reads_negative_zero() -> None:
+    """Float noise (12 x 421.63 - 5059.56) must print as $0.00, not $-0.00."""
+    noise = 12 * 421.63 - 5059.56
+    check("no '$-0.00'", fmt_signed_money(noise) == "$0.00" and fmt_money(-0.0) == "$0.00")
+    check("no '+-0.00%'", fmt_signed_pct(-0.0) == "+0.00%")
+    check("a real loss keeps its sign", fmt_signed_money(-0.01) == "-$0.01")
+
+
+def test_blotter_drops_columns_it_cannot_fit() -> None:
+    """A narrow blotter hides its least important columns instead of scrolling."""
+    from paper_trader.core.portfolio import PositionView
+
+    view = PositionView(symbol="AAPL", quantity=6, avg_cost=406.46, cost_basis=2438.76,
+                        price=407.0, priced=True, market_value=2442.0,
+                        unrealized_pl=3.24, unrealized_pl_pct=0.13,
+                        day_change=3.24, day_change_pct=0.13, weight=0.24)
+    t = PositionsTable()
+    t.update_positions([view])
+    t.resize(430, 220)
+    t.show()
+    app.processEvents()
+    header = t._table.horizontalHeader()
+    hidden = {c for c in range(t._table.columnCount()) if header.isSectionHidden(c)}
+    check("a narrow blotter hides average cost first", 2 in hidden and hidden <= {1, 2, 3})
+    check("symbol, value, today and total return stay",
+          not hidden & {0, 4, 5, 6})
+    t.resize(1200, 220)
+    app.processEvents()
+    check("a wide blotter shows every column",
+          not any(header.isSectionHidden(c) for c in range(t._table.columnCount())))
+    check("the dropped weight lives on as a tooltip", "of your portfolio" in
+          (t._table.item(0, 4).toolTip() or ""))
+    t.close()
+
+
+def test_watchlist_can_be_hidden_and_stays_hidden() -> None:
+    """The rail folds away (the chart takes the room) and remembers it."""
+    win = _window()
+    win._toggle_watchlist()
+    app.processEvents()
+    check("the watchlist hides", win._rail.isHidden())
+    check("the choice is saved", win._store.load_settings().get("show_watchlist") is False)
+    win.close()
+    again = _window()
+    check("and it is restored on the next launch", again._rail.isHidden())
+    again._set_watchlist_visible(True)
+    again.close()
+
+
 def test_legacy_window_still_runs() -> None:
     """`run.py --old` keeps the previous interface working."""
     from paper_trader.ui_legacy.main_window import MainWindow as LegacyWindow
@@ -421,6 +588,14 @@ def main() -> int:
                test_chart_controls_do_not_jump,
                test_chart_chrome_switches,
                test_buy_button_keeps_its_fill,
+               test_chart_scrub_drives_the_hero,
+               test_hero_follows_the_chart_range,
+               test_accent_follows_the_stocks_day,
+               test_watchlist_rows_survive_a_list_change,
+               test_notices_surface_as_toasts,
+               test_money_never_reads_negative_zero,
+               test_blotter_drops_columns_it_cannot_fit,
+               test_watchlist_can_be_hidden_and_stays_hidden,
                test_legacy_window_still_runs):
         fn()
     failed = [name for name, ok in _checks if not ok]

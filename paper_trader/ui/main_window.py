@@ -20,6 +20,7 @@ blocks on HTTP.
 from __future__ import annotations
 
 from PyQt6.QtCore import (
+    QEvent,
     QMetaObject,
     QObject,
     QRunnable,
@@ -41,6 +42,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -70,8 +72,10 @@ from .widgets.options_chain import OptionsChainView
 from .widgets.options_positions import OptionsPositionsTable
 from .widgets.portfolio_bar import PortfolioBar
 from .widgets.positions_table import PositionsTable
-from .widgets.price_header import DayStatsCard, PriceHeader
+from .widgets.price_header import RANGE_LABELS, DayStatsCard, PriceHeader
+from .widgets.segments import segment_group
 from .widgets.trade_panel import OrderTicket, TradePanel
+from .widgets.toast import Toast
 from .widgets.watchlist import WatchlistPanel
 from .format import fmt_shares
 
@@ -154,10 +158,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1560, 980)
-        # The floor is what the page actually needs: hero + chart + day stats in
-        # the centre column, and the blotter's tab bar plus a row beneath it.
-        # Allowing less than this is how widgets end up overlapping.
-        self.setMinimumSize(1160, 820)
+        # The floor is what the page actually needs: hero + chart + key stats
+        # over the blotter's tab bar and a row in the centre column, and the
+        # order card with its pills down the right. Allowing less than this is
+        # how widgets end up overlapping (tests/test_ui.py holds it to that).
+        self.setMinimumSize(1180, 800)
 
         self._store = store
         self.session = session
@@ -175,6 +180,8 @@ class MainWindow(QMainWindow):
             "last_price": bool(settings.get("chart_last_price", True)),
         }
         anim.ENABLED = bool(settings.get("animations", True))
+        self._show_watchlist = bool(settings.get("show_watchlist", True))
+        self._accent = "up"          # the active stock's day: "up" | "down"
 
         # Backends.
         self.broker: Broker = self._make_broker(broker_mode)
@@ -260,6 +267,7 @@ class MainWindow(QMainWindow):
         self._nav.searchRequested.connect(self._on_search_requested)
         self._nav.symbolChosen.connect(self._on_symbol_chosen)
         self._nav.symbolSubmitted.connect(self._on_symbol_submitted)
+        self._nav.set_sidebar_toggle(self._toggle_watchlist)
         outer.addWidget(self._nav)
 
         self._portfolio_bar = PortfolioBar()
@@ -267,98 +275,46 @@ class MainWindow(QMainWindow):
 
         body = QWidget()
         body_box = QVBoxLayout(body)
-        body_box.setContentsMargins(22, 18, 22, 10)
-        body_box.setSpacing(14)
+        body_box.setContentsMargins(24, 20, 24, 12)
+        body_box.setSpacing(0)
 
-        # ---- centre column: price hero, mode toggle, chart, day stats ----- #
+        # ---- centre: price hero, chart (or chain), key statistics ---------- #
         self._price_header = PriceHeader()
         self._chart = ChartWidget()
         self._chart.rangeChanged.connect(self._on_range_changed)
+        self._chart.pointHovered.connect(self._on_chart_hover)
         self._options_chain = OptionsChainView()
         self._options_chain.contractSelected.connect(self._on_contract_selected)
         self._day_stats = DayStatsCard()
 
-        center = QWidget()
-        center_box = QVBoxLayout(center)
-        center_box.setContentsMargins(8, 0, 8, 0)
-        center_box.setSpacing(12)
-        center_box.addWidget(self._price_header)
-        center_box.addLayout(self._build_mode_toggle())
+        center_top = QWidget()
+        center_top.setObjectName("Clear")
+        top_box = QVBoxLayout(center_top)
+        top_box.setContentsMargins(8, 0, 8, 0)
+        top_box.setSpacing(18)
+        hero_row = QHBoxLayout()
+        hero_row.setSpacing(16)
+        hero_row.addWidget(self._price_header, 1)
+        # The view switches sit top-right of the hero: what to trade (stock or
+        # options) over how to draw it (line or candles).
+        switches = QVBoxLayout()
+        switches.setSpacing(10)
+        switches.addWidget(self._build_mode_toggle(), 0, Qt.AlignmentFlag.AlignRight)
+        switches.addWidget(self._chart.mode_toggle, 0, Qt.AlignmentFlag.AlignRight)
+        switches.addStretch(1)
+        hero_row.addLayout(switches)
+        top_box.addLayout(hero_row)
 
         # Chart (stock) / chain (options) swap in the centre.
         self._center_stack = QStackedWidget()
         self._center_stack.addWidget(self._chart)           # 0: stock
         self._center_stack.addWidget(self._options_chain)   # 1: options
-        center_box.addWidget(self._center_stack, 1)
-        center_box.addWidget(self._day_stats)
+        top_box.addWidget(self._center_stack, 1)
+        top_box.addWidget(self._day_stats)
+        self._center_top = center_top
+        center_top.installEventFilter(self)
 
-        # ---- left rail: watchlist ----------------------------------------- #
-        self._watchlist = WatchlistPanel()
-        self._watchlist.symbolSelected.connect(self.set_active_symbol)
-        self._watchlist.watchlistChanged.connect(self._on_watchlist_changed)
-        rail = QFrame()
-        rail.setObjectName("Panel")
-        rail_box = QVBoxLayout(rail)
-        rail_box.setContentsMargins(0, 0, 8, 0)
-        rail_box.addWidget(self._watchlist)
-
-        # ---- right column: order card + secondary actions ----------------- #
-        self._trade_panel = TradePanel()
-        self._trade_panel.orderRequested.connect(self._on_order_requested)
-        self._option_ticket = OptionTicket()
-        self._option_ticket.orderRequested.connect(self._on_option_order_requested)
-
-        self._right_stack = QStackedWidget()
-        self._right_stack.addWidget(_card(self._trade_panel))    # 0: stock
-        self._right_stack.addWidget(_card(self._option_ticket))  # 1: options
-
-        right_inner = QWidget()
-        right_box = QVBoxLayout(right_inner)
-        right_box.setContentsMargins(8, 0, 8, 0)
-        right_box.setSpacing(12)
-        right_box.addWidget(self._right_stack)
-        self._options_cta = QPushButton("Trade Options")
-        self._options_cta.setObjectName("Outline")
-        self._options_cta.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._options_cta.clicked.connect(self._toggle_market_mode)
-        self._watch_cta = QPushButton("Watch")
-        self._watch_cta.setObjectName("Outline")
-        self._watch_cta.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._watch_cta.clicked.connect(self._toggle_watch)
-        right_box.addWidget(self._options_cta)
-        right_box.addWidget(self._watch_cta)
-        right_box.addStretch(1)
-
-        right = QScrollArea()
-        right.setWidget(right_inner)
-        right.setWidgetResizable(True)
-        right.setFrameShape(QFrame.Shape.NoFrame)
-        right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # Scoped by name: a selector-less sheet here would cascade to every
-        # widget in the column and strip the Buy pill's fill.
-        right.viewport().setObjectName("CardViewport")
-        right.viewport().setStyleSheet("#CardViewport { background: transparent; }")
-
-        # The three columns are draggable: the rail and the card have sensible
-        # minimums (and the card a maximum), and the chart absorbs the slack.
-        rail.setMinimumWidth(180)
-        rail.setMaximumWidth(420)
-        center.setMinimumWidth(420)
-        right.setMinimumWidth(300)
-        right.setMaximumWidth(460)
-        top = QSplitter(Qt.Orientation.Horizontal)
-        top.addWidget(rail)
-        top.addWidget(center)
-        top.addWidget(right)
-        top.setStretchFactor(0, 0)
-        top.setStretchFactor(1, 1)
-        top.setStretchFactor(2, 0)
-        top.setSizes([250, 900, 330])
-        top.setChildrenCollapsible(False)
-        top.setHandleWidth(9)
-        self._top_split = top
-
-        # ---- blotter tabs -------------------------------------------------- #
+        # ---- blotter tabs, under the chart ---------------------------------- #
         self._positions = PositionsTable()
         self._positions.symbolSelected.connect(self.set_active_symbol)
         self._positions.sellAllRequested.connect(self._sell_all)
@@ -370,30 +326,107 @@ class MainWindow(QMainWindow):
         self._orders.cancelRequested.connect(self._cancel_order)
 
         self._tabs = QTabWidget()
+        self._tabs.tabBar().setDrawBase(False)
         self._tabs.addTab(self._positions, "Positions")
         self._tabs.addTab(self._options_positions, "Options")
         self._tabs.addTab(self._history, "History")
         self._tabs.addTab(self._orders, "Orders")
-
         # Dragging the handle must always leave the tab bar and a row of the
         # table on screen — a minimum, not a collapse.
-        self._tabs.setMinimumHeight(132)
+        self._tabs.setMinimumHeight(124)
+        tabs_holder = QWidget()
+        tabs_holder.setObjectName("Clear")
+        tabs_box = QVBoxLayout(tabs_holder)
+        tabs_box.setContentsMargins(8, 6, 8, 0)
+        tabs_box.addWidget(self._tabs)
+
         main_split = QSplitter(Qt.Orientation.Vertical)
-        main_split.addWidget(top)
-        main_split.addWidget(self._tabs)
+        main_split.addWidget(center_top)
+        main_split.addWidget(tabs_holder)
         main_split.setStretchFactor(0, 1)
         main_split.setStretchFactor(1, 0)
-        main_split.setSizes([1000, 250])  # ~4:1 — the chart gets the lion's share
+        main_split.setSizes([1000, 260])
         main_split.setChildrenCollapsible(False)
-        main_split.setHandleWidth(9)
+        main_split.setHandleWidth(13)
         self._main_split = main_split
-        body_box.addWidget(main_split, 1)
+
+        # ---- left rail: watchlist, full height ------------------------------ #
+        self._watchlist = WatchlistPanel()
+        self._watchlist.symbolSelected.connect(self.set_active_symbol)
+        self._watchlist.watchlistChanged.connect(self._on_watchlist_changed)
+        rail = QFrame()
+        rail.setObjectName("Panel")
+        rail_box = QVBoxLayout(rail)
+        rail_box.setContentsMargins(0, 2, 12, 0)
+        rail_box.addWidget(self._watchlist)
+        self._rail = rail
+
+        # ---- right column: order card + secondary actions, full height ---- #
+        self._trade_panel = TradePanel()
+        self._trade_panel.orderRequested.connect(self._on_order_requested)
+        self._option_ticket = OptionTicket()
+        self._option_ticket.orderRequested.connect(self._on_option_order_requested)
+
+        self._right_stack = QStackedWidget()
+        self._right_stack.addWidget(self._trade_panel)     # 0: stock
+        self._right_stack.addWidget(self._option_ticket)   # 1: options
+        _fit_stack(self._right_stack)
+
+        right_inner = QWidget()
+        right_inner.setObjectName("Clear")
+        right_box = QVBoxLayout(right_inner)
+        right_box.setContentsMargins(12, 0, 2, 12)
+        right_box.setSpacing(14)
+        right_box.addWidget(self._right_stack)
+        right_box.addSpacing(6)
+        self._options_cta = _outline_pill("Trade Options", self._toggle_market_mode)
+        self._watch_cta = _outline_pill("Watch", self._toggle_watch)
+        right_box.addWidget(self._options_cta)
+        right_box.addWidget(self._watch_cta)
+        right_box.addStretch(1)
+
+        # A scroll fallback for very short windows; at normal sizes the card and
+        # its pills fit the full-height column without it.
+        right = QScrollArea()
+        right.setObjectName("Clear")
+        right.setWidget(right_inner)
+        right.setWidgetResizable(True)
+        right.setFrameShape(QFrame.Shape.NoFrame)
+        right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Scoped by name: a selector-less sheet here would cascade to every
+        # widget in the column and strip the Buy pill's fill.
+        right.viewport().setObjectName("CardViewport")
+        right.viewport().setStyleSheet("#CardViewport { background: transparent; }")
+
+        # The three columns are draggable: the rail and the card have sensible
+        # minimums (and maximums), and the centre absorbs the slack.
+        rail.setMinimumWidth(190)
+        rail.setMaximumWidth(380)
+        main_split.setMinimumWidth(460)
+        right.setMinimumWidth(318)
+        right.setMaximumWidth(440)
+        top = QSplitter(Qt.Orientation.Horizontal)
+        top.addWidget(rail)
+        top.addWidget(main_split)
+        top.addWidget(right)
+        top.setStretchFactor(0, 0)
+        top.setStretchFactor(1, 1)
+        top.setStretchFactor(2, 0)
+        top.setSizes([262, 900, 352])
+        top.setChildrenCollapsible(False)
+        top.setHandleWidth(13)
+        self._top_split = top
+        body_box.addWidget(top, 1)
 
         outer.addWidget(body, 1)
         self.setCentralWidget(central)
-        # Create the status bar up front: adding it lazily on the first message
-        # would resize everything above it mid-session.
+        rail.setVisible(self._show_watchlist)
+
+        # Notices float over the page; the status bar stays as their record
+        # (and for anything that reads it) but is never drawn.
+        self._toast = Toast(central)
         self.statusBar().setSizeGripEnabled(False)
+        self.statusBar().hide()
         self._update_source_label()
 
     def _install_nav_controls(self) -> None:
@@ -476,21 +509,16 @@ class MainWindow(QMainWindow):
         except StoreError:
             pass
 
-    def _build_mode_toggle(self) -> QHBoxLayout:
-        """The Stock / Options segmented control above the centre stack."""
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.setContentsMargins(0, 2, 0, 0)
+    def _build_mode_toggle(self) -> QFrame:
+        """The Stock / Options segmented control beside the price hero."""
+        group, buttons = segment_group(("Stock", "Options"), checked=0)
         self._mode_group = QButtonGroup(self)
-        self._stock_mode_btn = _mode_segment("Stock", checked=True)
-        self._options_mode_btn = _mode_segment("Options")
+        self._stock_mode_btn, self._options_mode_btn = buttons
         self._stock_mode_btn.clicked.connect(lambda: self._set_market_mode("stock"))
         self._options_mode_btn.clicked.connect(lambda: self._set_market_mode("options"))
-        for b in (self._stock_mode_btn, self._options_mode_btn):
+        for b in buttons:
             self._mode_group.addButton(b)
-            row.addWidget(b)
-        row.addStretch(1)
-        return row
+        return group
 
     # ================================================================== #
     # Market mode (stock / options)
@@ -521,6 +549,11 @@ class MainWindow(QMainWindow):
         is_opt = mode == "options"
         anim.cross_fade_stack(self._center_stack, 1 if is_opt else 0)
         anim.cross_fade_stack(self._right_stack, 1 if is_opt else 0)
+        _fit_stack(self._right_stack)
+        # The chain wants the room; the day's stats and the line/candle switch
+        # belong to the stock view.
+        self._chart.mode_toggle.setVisible(not is_opt)
+        self._fit_center()
         self._sync_mode_buttons(mode)
         if is_opt:
             self._options_chain.set_underlying(
@@ -533,7 +566,7 @@ class MainWindow(QMainWindow):
         self._options_mode_btn.setChecked(is_opt)
         sym = self._active_symbol
         self._options_cta.setText(
-            f"Back to {sym} Chart" if is_opt else f"Trade {sym} Options".strip())
+            f"Back to {sym} chart" if is_opt else f"Trade {sym} Options".strip())
 
     def _sync_options_availability(self) -> None:
         # Extended-hours (pre/after-market) trading is an Alpaca capability; the
@@ -557,6 +590,7 @@ class MainWindow(QMainWindow):
         self._option_ticket.set_underlying_price(self._prices.get(contract.underlying))
         self._option_ticket.set_account(self._buying_power, pos_qty)
         anim.cross_fade_stack(self._right_stack, 1)
+        _fit_stack(self._right_stack)
 
     def _refresh_option_ticket(self) -> None:
         c = self._selected_contract
@@ -603,6 +637,12 @@ class MainWindow(QMainWindow):
         _add(view_menu, "Toggle &Dark / Light", self._toggle_theme, "Ctrl+D")
         _add(view_menu, "&Find Symbol", lambda: self._nav.focus_search(),
              QKeySequence.StandardKey.Find)
+        self._watchlist_action = QAction("Show &Watchlist", self, checkable=True)
+        self._watchlist_action.setMenuRole(QAction.MenuRole.NoRole)
+        self._watchlist_action.setShortcut("Ctrl+L")
+        self._watchlist_action.setChecked(self._show_watchlist)
+        self._watchlist_action.triggered.connect(lambda on: self._set_watchlist_visible(on))
+        view_menu.addAction(self._watchlist_action)
         view_menu.addSeparator()
         self._view_chart_menu = view_menu.addMenu("&Chart Display")
         view_menu.addSeparator()
@@ -665,6 +705,7 @@ class MainWindow(QMainWindow):
         self._feed.quoteReady.connect(self._on_quote)
         self._feed.chartReady.connect(self._on_chart)
         self._feed.watchlistQuotesReady.connect(self._on_watchlist_quotes)
+        self._feed.sparklinesReady.connect(self._watchlist.update_sparklines)
         self._feed.errorOccurred.connect(self._on_feed_error)
         self._thread.start()
 
@@ -758,6 +799,43 @@ class MainWindow(QMainWindow):
             self._status(f"{sym} added to your watchlist.", 4000)
         self._sync_symbol_actions()
 
+    def _toggle_watchlist(self) -> None:
+        self._set_watchlist_visible(not self._rail.isVisible())
+
+    def _set_watchlist_visible(self, visible: bool) -> None:
+        """Show or hide the watchlist rail; the chart takes the width it frees."""
+        self._show_watchlist = bool(visible)
+        self._rail.setVisible(self._show_watchlist)
+        self._watchlist_action.setChecked(self._show_watchlist)
+        try:
+            self._store.set_setting("show_watchlist", self._show_watchlist)
+        except StoreError:
+            pass
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt naming)
+        if obj is getattr(self, "_center_top", None) and event.type() == QEvent.Type.Resize:
+            self._fit_center()
+        return super().eventFilter(obj, event)
+
+    def _fit_center(self) -> None:
+        """Show the key statistics only when the centre column has room for them.
+
+        The column is the hero and chart (and the stats) over the blotter. On a
+        short window the stats would squeeze the chart below its floor — and Qt
+        then draws widgets on top of each other rather than clip them.
+        """
+        stats = self._day_stats
+        if self._market_mode == "options":
+            stats.hide()
+            return
+        spacing = self._center_top.layout().spacing()
+        need = (self._price_header.minimumSizeHint().height() + spacing
+                + self._center_stack.minimumSizeHint().height()
+                + spacing + stats.sizeHint().height())
+        show = self._center_top.height() >= need
+        if stats.isHidden() == show:
+            stats.setVisible(show)
+
     # ================================================================== #
     # Market-feed slots
     # ================================================================== #
@@ -769,6 +847,8 @@ class MainWindow(QMainWindow):
             self._price_header.update_quote(quote)
             self._day_stats.update_quote(quote)
             self._chart.update_reference(quote.previous_close)
+            self._sync_accent(quote.change)
+            self._sync_range_change()
             self._trade_panel.set_market_price(quote.price)
             self._trade_panel.set_session(quote.market_state)
             self._options_chain.set_price(quote.price)
@@ -780,6 +860,31 @@ class MainWindow(QMainWindow):
 
     def _on_chart(self, symbol: str, range_key: str, candles) -> None:
         self._chart.set_candles(symbol, range_key, candles)
+        self._sync_range_change()
+
+    def _on_chart_hover(self, price) -> None:
+        """Scrubbing the chart shows the hovered price in the hero."""
+        if price is None:
+            self._price_header.clear_point()
+        else:
+            self._price_header.show_point(float(price))
+
+    def _sync_range_change(self) -> None:
+        """Measure the hero's change line over the chart's range."""
+        rng = self._chart.current_range()
+        self._price_header.set_range(RANGE_LABELS.get(rng, rng), self._chart.reference_price())
+
+    def _sync_accent(self, change: float | None) -> None:
+        """Tint the card, its pills and the range tabs by the stock's day."""
+        name = theme.accent_name(change)
+        if name == self._accent:
+            return
+        self._accent = name
+        self._trade_panel.set_accent(name)
+        self._option_ticket.set_accent(name)
+        self._chart.set_accent(name)
+        for pill in (self._options_cta, self._watch_cta):
+            theme.set_accent(pill, name)
 
     def _on_watchlist_quotes(self, quotes: dict) -> None:
         for sym, quote in quotes.items():
@@ -826,12 +931,21 @@ class MainWindow(QMainWindow):
     def _status(self, message: str, msecs: int = 5000, *, error: bool = False) -> None:
         self._status_is_error = error
         self.statusBar().showMessage(message, msecs)
+        if error:
+            kind, text = "error", message.lstrip("⚠").strip()
+        elif message.endswith("…"):
+            kind, text = "info", message          # progress: stays until replaced
+        else:
+            kind, text = "success", message
+        self._toast.show_message(text, kind, msecs)
 
     def _clear_error_status(self) -> None:
         """Drop a stale error, but never a fill/settlement notice."""
         if self._status_is_error:
             self._status_is_error = False
             self.statusBar().clearMessage()
+            if self._toast.kind() == "error":
+                self._toast.dismiss()
 
     # ================================================================== #
     # Refresh
@@ -1038,6 +1152,9 @@ class MainWindow(QMainWindow):
         self._save(silent=True)
 
     def _on_range_changed(self, range_key: str) -> None:
+        # The old range's change would be wrong under the new label: show
+        # nothing until the new series (and its starting price) arrives.
+        self._price_header.set_range(RANGE_LABELS.get(range_key, range_key), None)
         if self._feed is not None:
             self._feed.set_range(range_key)
             self._feed.request_immediate()
@@ -1162,6 +1279,10 @@ class MainWindow(QMainWindow):
             act.setChecked(act.text().lower() == name)
         self._chart.apply_theme()
         self._nav.refresh_theme()
+        self._trade_panel.refresh_theme()
+        self._option_ticket.refresh_theme()
+        self._options_chain.refresh_theme()
+        self._toast.refresh_theme()
         if self._active_quote is not None:
             self._price_header.update_quote(self._active_quote)
             self._day_stats.update_quote(self._active_quote)
@@ -1260,10 +1381,10 @@ class MainWindow(QMainWindow):
 
     def _update_source_label(self) -> None:
         broker_txt = "Alpaca paper" if self.broker.is_remote else "Local sim"
-        src = {"alpaca": "Alpaca IEX", "yahoo": "Yahoo", "demo": "Demo"}.get(
+        src = {"alpaca": "Alpaca IEX", "yahoo": "Yahoo", "demo": "Demo data"}.get(
             self._data_source, self._data_source)
         color = theme.gain_color() if self.broker.is_remote else theme.color("text_muted")
-        self._nav.set_status(f"● {broker_txt}  ·  {src}", color)
+        self._nav.set_status(f"{broker_txt}&nbsp;&nbsp;·&nbsp;&nbsp;{src}", color)
 
     # ================================================================== #
     # Persistence
@@ -1290,7 +1411,7 @@ class MainWindow(QMainWindow):
             self._sized = True
             total = self._main_split.height()
             if total > 400:
-                self._main_split.setSizes([int(total * 0.84), int(total * 0.16)])
+                self._main_split.setSizes([int(total * 0.74), int(total * 0.26)])
 
     def closeEvent(self, event) -> None:
         self._stop_feed()
@@ -1307,24 +1428,29 @@ class MainWindow(QMainWindow):
 
 
 # --------------------------------------------------------------------------- #
-def _mode_segment(text: str, checked: bool = False) -> QPushButton:
-    """A pill button for the Stock / Options market-mode toggle."""
+def _outline_pill(text: str, slot) -> QPushButton:
+    """An outlined green pill for the card's secondary actions."""
     b = QPushButton(text)
-    b.setObjectName("Segment")
-    b.setCheckable(True)
-    b.setChecked(checked)
+    b.setObjectName("Outline")
+    b.setFixedHeight(theme.PILL_HEIGHT)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.clicked.connect(lambda _=False: slot())
     return b
 
 
-def _card(inner: QWidget, margin: int = 20) -> QFrame:
-    """Wrap a widget in the lifted, outlined card used down the right column."""
-    frame = QFrame()
-    frame.setObjectName("Card")
-    lay = QVBoxLayout(frame)
-    lay.setContentsMargins(margin, margin, margin, margin)
-    lay.addWidget(inner)
-    return frame
+def _fit_stack(stack: QStackedWidget) -> None:
+    """Size a stacked widget to its current page, not its tallest one.
+
+    A stack otherwise reserves room for every page, so the short order card
+    would sit above a gap the size of the taller option ticket.
+    """
+    for i in range(stack.count()):
+        page = stack.widget(i)
+        vertical = (QSizePolicy.Policy.Preferred if i == stack.currentIndex()
+                    else QSizePolicy.Policy.Ignored)
+        page.setSizePolicy(QSizePolicy.Policy.Preferred, vertical)
+        page.updateGeometry()
+    stack.updateGeometry()
 
 
 def _add(menu, text: str, slot, shortcut=None) -> QAction:

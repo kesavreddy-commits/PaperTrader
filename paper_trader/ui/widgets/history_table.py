@@ -10,7 +10,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QAbstractItemView,
+    QHBoxLayout,
     QHeaderView,
     QPushButton,
     QTableWidget,
@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 from ...core.models import Order, OrderStatus, Side, Trade
 from ...core.options import OptionContract
 from .. import theme
-from ..tables import align_headers
+from ..tables import fit_columns, set_fixed_column, style_table
 from ..format import (
     fmt_datetime,
     fmt_money,
@@ -37,7 +37,8 @@ _MAX_ROWS = 1000
 class HistoryTable(QWidget):
     """The transaction log."""
 
-    _COLUMNS = ["Time", "Symbol", "Side", "Type", "Qty", "Price", "Amount", "Realized P/L"]
+    _COLUMNS = ["Time", "Symbol", "Side", "Type", "Quantity", "Price", "Amount", "Realized P/L"]
+    _DROP = (3, 6, 7)     # hidden first when the column is narrow
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,11 +47,16 @@ class HistoryTable(QWidget):
         self._table = _make_table(self._COLUMNS)
         root.addWidget(self._table)
 
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        fit_columns(self._table, self._DROP)
+
     def update_trades(self, trades: list[Trade]) -> None:
         rows = list(reversed(trades))[:_MAX_ROWS]  # newest first
         if not rows:
             _show_empty(self._table, len(self._COLUMNS),
                         "No transactions yet — your fills will appear here.")
+            fit_columns(self._table, self._DROP)
             return
         self._table.clearSpans()
         self._table.setRowCount(len(rows))
@@ -58,9 +64,9 @@ class HistoryTable(QWidget):
             buy = t.side is Side.BUY
             _set(self._table, r, 0, fmt_datetime(t.timestamp))
             _set(self._table, r, 1, _trade_label(t), bold=True)
-            _set(self._table, r, 2, t.side.value,
+            _set(self._table, r, 2, t.side.value.title(),
                  color=theme.gain_color() if buy else theme.loss_color())
-            _set(self._table, r, 3, "Option" if t.is_option else t.order_type.value)
+            _set(self._table, r, 3, "Option" if t.is_option else t.order_type.value.title())
             _set(self._table, r, 4, fmt_shares(t.quantity), right=True)
             _set(self._table, r, 5, fmt_price(t.price), right=True)
             _set(self._table, r, 6, fmt_money(t.gross), right=True)
@@ -71,6 +77,7 @@ class HistoryTable(QWidget):
                      color=theme.color_for(t.realized_pl))
             else:
                 _set(self._table, r, 7, "—", right=True)
+        fit_columns(self._table, self._DROP)
 
 
 class OrdersTable(QWidget):
@@ -79,16 +86,14 @@ class OrdersTable(QWidget):
     cancelRequested = pyqtSignal(str)  # order id
 
     _COLUMNS = ["Created", "Symbol", "Side", "Size", "Limit", "Status", ""]
+    _DROP = (0, 2)        # hidden first when the column is narrow
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self._table = _make_table(self._COLUMNS)
-        self._table.horizontalHeader().setSectionResizeMode(
-            len(self._COLUMNS) - 1, QHeaderView.ResizeMode.Fixed
-        )
-        self._table.setColumnWidth(len(self._COLUMNS) - 1, 90)
+        set_fixed_column(self._table, len(self._COLUMNS) - 1, 100)
         root.addWidget(self._table)
 
     def update_orders(self, orders: list[Order]) -> None:
@@ -100,6 +105,7 @@ class OrdersTable(QWidget):
         if not ordered:
             _show_empty(self._table, len(self._COLUMNS),
                         "No limit orders — switch the order type to Limit to place one.")
+            fit_columns(self._table, self._DROP)
             return
         self._table.clearSpans()
         self._table.setRowCount(len(ordered))
@@ -107,7 +113,7 @@ class OrdersTable(QWidget):
             buy = o.side is Side.BUY
             _set(self._table, r, 0, fmt_datetime(o.created_at))
             _set(self._table, r, 1, o.symbol, bold=True)
-            _set(self._table, r, 2, o.side.value,
+            _set(self._table, r, 2, o.side.value.title(),
                  color=theme.gain_color() if buy else theme.loss_color())
             _set(self._table, r, 3, _order_size(o), right=True)
             _set(self._table, r, 4, fmt_price(o.limit_price), right=True)
@@ -115,13 +121,24 @@ class OrdersTable(QWidget):
             # Cancel button only for still-resting orders.
             if o.status is OrderStatus.PENDING:
                 btn = QPushButton("Cancel")
-                btn.setObjectName("Segment")
+                btn.setObjectName("Ghost")
+                btn.setFixedHeight(30)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(lambda _=False, oid=o.id: self.cancelRequested.emit(oid))
-                self._table.setCellWidget(r, 6, btn)
+                wrap = QWidget()
+                wrap.setObjectName("Clear")
+                lay = QHBoxLayout(wrap)
+                lay.setContentsMargins(4, 7, 4, 7)
+                lay.addWidget(btn)
+                self._table.setCellWidget(r, 6, wrap)
             else:
                 self._table.removeCellWidget(r, 6)
                 _set(self._table, r, 6, "")
+        fit_columns(self._table, self._DROP)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        fit_columns(self._table, self._DROP)
 
 
 # --------------------------------------------------------------------------- #
@@ -130,17 +147,12 @@ class OrdersTable(QWidget):
 def _make_table(columns: list[str]) -> QTableWidget:
     table = QTableWidget(0, len(columns))
     table.setHorizontalHeaderLabels(columns)
-    table.verticalHeader().setVisible(False)
-    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-    table.setShowGrid(False)
-    table.setAlternatingRowColors(True)
+    style_table(table, left_columns=(0, 1, 2, 3))
     header = table.horizontalHeader()
     header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
     header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
     for i in range(2, len(columns)):
         header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-    align_headers(table, left_columns=(0, 1, 2, 3))
     return table
 
 

@@ -62,6 +62,11 @@ DEFAULT_WATCHLIST = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "SPY"]
 FEED_TICK_SECONDS = 4.0
 CHART_REFRESH_EVERY_TICKS = 8      # ~32s at a 4s tick
 WATCHLIST_REFRESH_EVERY_TICKS = 4  # ~16s at a 4s tick
+# Watchlist sparklines (a day of closes per row) refresh slowly and a couple of
+# symbols at a time, so a long watchlist never bursts the rate limit.
+SPARKLINE_REFRESH_SECONDS = 300.0
+SPARKLINES_PER_TICK = 2
+SPARKLINE_POINTS = 64
 
 # Cache time-to-live per data kind (seconds). Multiple UI consumers asking for
 # the same symbol within the TTL share one network response.

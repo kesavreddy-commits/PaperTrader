@@ -23,11 +23,15 @@ from PyQt6.QtWidgets import (
 
 from ...core.portfolio import PositionView
 from .. import theme
-from ..tables import align_headers
+from ..tables import fit_columns, style_table
 from ..format import fmt_money, fmt_price, fmt_shares, fmt_signed_money, fmt_signed_pct
 
-_COLUMNS = ["Symbol", "Shares", "Avg Cost", "Price", "Mkt Value",
-            "Today", "Total P/L", "Return", "Weight"]
+# Weight lives in the market-value cell's tooltip: nine columns overflowed the
+# centre column at ordinary window sizes.
+_COLUMNS = ["Symbol", "Shares", "Avg cost", "Price", "Market value",
+            "Today", "Total return"]
+# Hidden first when the column is too narrow for all of them.
+_DROP = (2, 3, 1)
 
 
 class PositionsTable(QWidget):
@@ -46,17 +50,13 @@ class PositionsTable(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setShowGrid(False)
-        self._table.setAlternatingRowColors(True)
+        style_table(self._table)
+        self._table.setCursor(Qt.CursorShape.PointingHandCursor)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for i in range(1, len(_COLUMNS)):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        align_headers(self._table)
         self._table.cellClicked.connect(self._on_clicked)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_menu)
@@ -71,6 +71,11 @@ class PositionsTable(QWidget):
         else:
             for row, pv in enumerate(positions):
                 self._fill_row(row, pv)
+        fit_columns(self._table, _DROP)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        fit_columns(self._table, _DROP)
 
     def _rebuild(self, positions: list[PositionView]) -> None:
         self._table.clearSpans()
@@ -92,6 +97,7 @@ class PositionsTable(QWidget):
         self._set(row, 2, fmt_price(pv.avg_cost), right=True)
         self._set(row, 3, fmt_price(pv.price) if pv.priced else "—", right=True)
         self._set(row, 4, fmt_money(pv.market_value), right=True)
+        self._table.item(row, 4).setToolTip(f"{pv.weight * 100:.1f}% of your portfolio")
 
         if pv.day_change is None:
             self._set(row, 5, "—", right=True)
@@ -101,11 +107,9 @@ class PositionsTable(QWidget):
                 f"{fmt_signed_money(pv.day_change)} ({fmt_signed_pct(pv.day_change_pct)})",
                 right=True, color=theme.color_for(pv.day_change),
             )
-        self._set(row, 6, fmt_signed_money(pv.unrealized_pl), right=True,
-                  color=theme.color_for(pv.unrealized_pl))
-        self._set(row, 7, fmt_signed_pct(pv.unrealized_pl_pct), right=True,
-                  color=theme.color_for(pv.unrealized_pl))
-        self._set(row, 8, f"{pv.weight * 100:.1f}%", right=True)
+        self._set(row, 6,
+                  f"{fmt_signed_money(pv.unrealized_pl)} ({fmt_signed_pct(pv.unrealized_pl_pct)})",
+                  right=True, color=theme.color_for(pv.unrealized_pl))
 
     def _set(self, row: int, col: int, text: str, *, bold: bool = False,
              right: bool = False, color: str | None = None) -> None:

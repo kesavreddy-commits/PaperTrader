@@ -12,14 +12,16 @@ from __future__ import annotations
 from datetime import date
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -29,10 +31,13 @@ from PyQt6.QtWidgets import (
 from ...core.options import OptionRight, days_to_expiry
 from ...data.options_chain import OptionsChainService
 from .. import theme
-from ..tables import align_headers
+from ..tables import fit_columns, style_table
 from ..format import fmt_price
+from .segments import segment_group
 
 _COLUMNS = ["Strike", "Bid", "Mark", "Ask", "Delta", "IV", ""]
+_DROP = (6, 5, 4)     # the ITM tag, IV, then delta go first on a narrow column
+_EXPIRY_ROW_HEIGHT = 40
 
 
 class OptionsChainView(QWidget):
@@ -57,48 +62,58 @@ class OptionsChainView(QWidget):
     def _build(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(10)
 
         # Header: underlying + expiry summary.
         self._header = QLabel("Options")
-        self._header.setStyleSheet("font-size: 14px; font-weight: 700;")
+        self._header.setObjectName("H3")
+        self._header.setTextFormat(Qt.TextFormat.RichText)
         root.addWidget(self._header)
 
-        # Expiration selector.
-        self._exp_row = QHBoxLayout(); self._exp_row.setSpacing(6)
-        self._exp_group = QButtonGroup(self); self._exp_group.setExclusive(True)
-        exp_wrap = QWidget(); exp_wrap.setLayout(self._exp_row)
-        root.addWidget(exp_wrap)
+        # Expiration selector: a strip of chips that scrolls sideways when the
+        # column is too narrow for all of them.
+        self._exp_row = QHBoxLayout()
+        self._exp_row.setSpacing(8)
+        self._exp_row.setContentsMargins(0, 0, 0, 0)
+        self._exp_group = QButtonGroup(self)
+        self._exp_group.setExclusive(True)
+        exp_wrap = QWidget()
+        exp_wrap.setObjectName("Clear")
+        exp_wrap.setLayout(self._exp_row)
+        exp_scroll = _SideScroll()
+        exp_scroll.setObjectName("Clear")
+        exp_scroll.setWidget(exp_wrap)
+        exp_scroll.setWidgetResizable(True)
+        exp_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        exp_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        exp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        exp_scroll.setFixedHeight(_EXPIRY_ROW_HEIGHT)
+        exp_scroll.viewport().setObjectName("Clear")
+        root.addWidget(exp_scroll)
 
         # Calls / Puts toggle.
         cp_row = QHBoxLayout(); cp_row.setSpacing(6)
-        self._cp_group = QButtonGroup(self)
-        self._calls_btn = self._segment("Calls", checked=True)
-        self._puts_btn = self._segment("Puts")
+        track, (self._calls_btn, self._puts_btn) = segment_group(("Calls", "Puts"))
+        self._cp_group = track._segment_group
         self._calls_btn.clicked.connect(lambda: self._set_right(OptionRight.CALL))
         self._puts_btn.clicked.connect(lambda: self._set_right(OptionRight.PUT))
-        for b in (self._calls_btn, self._puts_btn):
-            self._cp_group.addButton(b); cp_row.addWidget(b)
+        cp_row.addWidget(track)
         cp_row.addStretch(1)
         self._legend = QLabel(""); self._legend.setObjectName("Faint")
-        self._legend.setStyleSheet("font-size: 11px;")
+        self._legend.setStyleSheet("font-size: 12px;")
         cp_row.addWidget(self._legend)
         root.addLayout(cp_row)
 
         # Strike ladder.
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setShowGrid(False)
-        self._table.setAlternatingRowColors(False)
+        style_table(self._table)
+        self._table.setCursor(Qt.CursorShape.PointingHandCursor)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for i in range(1, len(_COLUMNS)):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        align_headers(self._table)
         self._table.cellClicked.connect(self._on_row_clicked)
         root.addWidget(self._table, 1)
 
@@ -107,12 +122,6 @@ class OptionsChainView(QWidget):
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._empty)
         self._table.hide()
-
-    def _segment(self, text: str, checked: bool = False) -> QPushButton:
-        b = QPushButton(text); b.setObjectName("Segment")
-        b.setCheckable(True); b.setChecked(checked)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        return b
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -136,6 +145,15 @@ class OptionsChainView(QWidget):
     def selected_right(self) -> OptionRight:
         return self._right
 
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        fit_columns(self._table, _DROP)
+
+    def refresh_theme(self) -> None:
+        """Repaint the row shading and header in the new palette."""
+        self._last_key = None
+        self._render()
+
     # ------------------------------------------------------------------ #
     def _ensure_expirations(self) -> None:
         exps = self._service.expirations()
@@ -154,8 +172,9 @@ class OptionsChainView(QWidget):
                 item.widget().setParent(None)
         for e in exps:
             dte = days_to_expiry(e)
-            btn = QPushButton(f"{e.strftime('%b %d')}\n{dte}d")
-            btn.setObjectName("RangeTab"); btn.setCheckable(True)
+            btn = QPushButton(f"{e.strftime('%b')} {e.day}")
+            btn.setObjectName("Chip"); btn.setCheckable(True)
+            btn.setToolTip(f"{e.strftime('%A, %B %d, %Y')} · {dte} days to expiry")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _=False, d=e: self._set_expiry(d))
             self._exp_group.addButton(btn)
@@ -196,11 +215,11 @@ class OptionsChainView(QWidget):
         chain = self._service.chain(self._underlying, self._price, self._expiry)
         dte = days_to_expiry(self._expiry)
         self._header.setText(
-            f"{self._underlying}  ·  {fmt_price(self._price)}   "
-            f"<span style='color:{theme.muted_color()}'>"
-            f"{self._expiry.strftime('%b %d, %Y')} · {dte} DTE</span>")
-        self._header.setTextFormat(Qt.TextFormat.RichText)
-        self._legend.setText("Shaded = in the money · ● = at the money")
+            f"{self._underlying} options"
+            f"<span style='color:{theme.muted_color()}; font-weight:600'>"
+            f"&nbsp;&nbsp;·&nbsp;&nbsp;Expires {self._expiry.strftime('%b %d, %Y')}"
+            f"&nbsp;&nbsp;·&nbsp;&nbsp;{dte} days</span>")
+        self._legend.setText("Shaded rows are in the money  ·  ● at the money")
 
         is_call = self._right is OptionRight.CALL
         key = (self._underlying, self._expiry.isoformat(), self._right.value,
@@ -230,8 +249,9 @@ class OptionsChainView(QWidget):
             self._set(row, 6, "ITM" if itm else "", right=True,
                       color=theme.color("accent") if itm else None)
             # Subtle ITM shading across the row.
-            self._shade(row, itm, is_atm)
+            self._shade(row, itm, is_atm, is_call)
 
+        fit_columns(self._table, _DROP)
         if rebuild and best is not None:
             # Defer the scroll until after the table has laid out its new rows,
             # so the at-the-money strikes land in the centre of the viewport.
@@ -257,13 +277,15 @@ class OptionsChainView(QWidget):
                 self._table.selectRow(row)
                 return
 
-    def _shade(self, row: int, itm: bool, atm: bool) -> None:
+    def _shade(self, row: int, itm: bool, atm: bool, is_call: bool) -> None:
+        """At the money reads as a band; in the money gets a faint wash in the
+        side's colour; everything else sits on the page."""
         if atm:
-            bg = QColor(theme.color("selection"))
+            bg = QBrush(QColor(theme.color("selection")))
         elif itm:
-            bg = QColor(theme.color("hover"))
+            bg = QBrush(QColor(theme.color("green_wash" if is_call else "red_wash")))
         else:
-            bg = QColor(theme.color("panel"))
+            bg = QBrush()
         for col in range(len(_COLUMNS)):
             it = self._table.item(row, col)
             if it is not None:
@@ -304,3 +326,21 @@ class OptionsChainView(QWidget):
         if self._price <= 0:
             return None
         return price_contract(contract, self._price)
+
+
+class _SideScroll(QScrollArea):
+    """A one-row strip that scrolls sideways: the wheel moves it left/right.
+
+    The scrollbar stays hidden (a bar under a row of chips reads as a rule);
+    trackpads scroll it natively, and this maps an ordinary mouse wheel too.
+    """
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        bar = self.horizontalScrollBar()
+        delta = event.angleDelta()
+        step = delta.x() or delta.y()
+        if bar.maximum() > 0 and step:
+            bar.setValue(bar.value() - step)
+            event.accept()
+            return
+        super().wheelEvent(event)

@@ -28,12 +28,14 @@ from PyQt6.QtWidgets import (
 
 from ...core.portfolio import OptionPositionView
 from .. import theme
-from ..tables import align_headers
+from ..tables import fit_columns, set_fixed_column, style_table
 from ..format import fmt_money, fmt_price, fmt_signed_money, fmt_signed_pct
 
-_COLUMNS = ["Contract", "Qty", "Avg", "Mark", "Mkt Value",
-            "Unrealized", "Return", "Δ", "DTE", ""]
+_COLUMNS = ["Contract", "Qty", "Avg price", "Mark", "Market value",
+            "Unrealized", "Return", "Delta", "DTE", ""]
 _CLOSE_COL = len(_COLUMNS) - 1
+# Hidden first when the column is too narrow for all of them.
+_DROP = (7, 2, 4, 6)
 
 
 class OptionsPositionsTable(QWidget):
@@ -52,22 +54,20 @@ class OptionsPositionsTable(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setShowGrid(False)
-        self._table.setAlternatingRowColors(True)
+        style_table(self._table)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for i in range(1, _CLOSE_COL):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(_CLOSE_COL, QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(_CLOSE_COL, 92)
-        align_headers(self._table)
+        set_fixed_column(self._table, _CLOSE_COL, 92)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_menu)
         root.addWidget(self._table)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        fit_columns(self._table, _DROP)
 
     # ------------------------------------------------------------------ #
     def update_positions(self, positions: list[OptionPositionView]) -> None:
@@ -78,6 +78,7 @@ class OptionsPositionsTable(QWidget):
         else:
             for row, pv in enumerate(positions):
                 self._fill_cells(row, pv)
+        fit_columns(self._table, _DROP)
 
     def _rebuild(self, positions: list[OptionPositionView]) -> None:
         self._table.clearSpans()
@@ -118,9 +119,11 @@ class OptionsPositionsTable(QWidget):
         """A Close button centred in a small wrapper so it never clips."""
         wrap = QWidget()
         lay = QHBoxLayout(wrap)
-        lay.setContentsMargins(2, 2, 2, 2)
+        wrap.setObjectName("Clear")
+        lay.setContentsMargins(4, 7, 4, 7)
         btn = QPushButton("Close")
-        btn.setObjectName("Segment")
+        btn.setObjectName("Ghost")
+        btn.setFixedHeight(30)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(lambda _=False, o=occ: self.closeRequested.emit(o))
         lay.addWidget(btn)

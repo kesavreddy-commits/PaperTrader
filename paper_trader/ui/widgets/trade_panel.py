@@ -1,11 +1,15 @@
-"""The order ticket (right column), styled like Robinhood's buy/sell card.
+"""The order card (right column), styled like Robinhood's buy/sell card.
 
-Layout mirrors the web app: a "Buy AAPL" heading, a Buy/Sell selector, then a
-stack of label/value rows — order type, Shares vs Dollars, the amount, market
-price, commissions — a rule, the bold estimated cost, and a full-width pill for
-the action. This is a view plus light client-side validation; the authoritative
-checks and execution happen in the broker/engine via the emitted
-:class:`OrderTicket`.
+Layout follows the reference: a lifted card whose header reads "Buy AAPL" /
+"Sell AAPL" over a full-width rule, with a chevron for the order type; then a
+stack of label/control rows — order type, shares vs dollars, the amount,
+market price, commissions — an inset rule, the bold estimated cost, the
+buying-power note and a full-width pill for the action. Like the reference,
+the card's accent (tabs and pill) follows the stock's day: green when it is up,
+orange when it is down.
+
+This is a view plus light client-side validation; the authoritative checks and
+execution happen in the broker/engine via the emitted :class:`OrderTicket`.
 """
 
 from __future__ import annotations
@@ -13,8 +17,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup, QDoubleValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -24,13 +28,18 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import theme
+from .. import icons, theme
 from ..format import fmt_money, fmt_price, fmt_shares
+
+_CONTROL_WIDTH = 150
+_FIELD_HEIGHT = 38
 
 
 @dataclass(slots=True)
@@ -45,11 +54,12 @@ class OrderTicket:
     extended_hours: bool = False  # route a limit order to the pre/after-hours session
 
 
-class TradePanel(QWidget):
+class TradePanel(QFrame):
     orderRequested = pyqtSignal(object)  # OrderTicket
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("Card")
         self._symbol = ""
         self._price: float | None = None
         self._cash = 0.0
@@ -59,6 +69,7 @@ class TradePanel(QWidget):
         self._mode = "SHARES"
         self._ext_supported = False   # only the Alpaca account can trade extended hours
         self._session = ""            # live market session ("PRE"/"POST"/…)
+        self._accent = "up"
         self._build()
         self._recompute()
 
@@ -66,83 +77,118 @@ class TradePanel(QWidget):
     def _build(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        self._title = QLabel("Buy")
-        self._title.setObjectName("H2")
-        root.addWidget(self._title)
-
-        # Buy / Sell toggle
+        # -- header: Buy / Sell tabs + the order-type chevron --------------- #
+        header = QHBoxLayout()
+        header.setContentsMargins(22, 16, 14, 14)
+        header.setSpacing(0)
         self._side_group = QButtonGroup(self)
-        side_row = QHBoxLayout(); side_row.setSpacing(8)
-        self._buy_toggle = self._segment("Buy", checked=True, name="SegmentBuy")
-        self._sell_toggle = self._segment("Sell", name="SegmentSell")
-        self._buy_toggle.clicked.connect(lambda: self._set_side("BUY"))
-        self._sell_toggle.clicked.connect(lambda: self._set_side("SELL"))
-        for b in (self._buy_toggle, self._sell_toggle):
-            self._side_group.addButton(b); side_row.addWidget(b)
-        root.addLayout(side_row)
+        self._buy_tab = self._header_tab("Buy", checked=True)
+        self._sell_tab = self._header_tab("Sell")
+        self._buy_tab.clicked.connect(lambda: self._set_side("BUY"))
+        self._sell_tab.clicked.connect(lambda: self._set_side("SELL"))
+        for b in (self._buy_tab, self._sell_tab):
+            self._side_group.addButton(b)
+            header.addWidget(b)
+        header.addStretch(1)
 
-        # Robinhood-style label/value rows
+        self._type_menu = QMenu(self)
+        self._type_actions = QActionGroup(self)
+        for label, kind in (("Market order", "MARKET"), ("Limit order", "LIMIT")):
+            act = QAction(label, self, checkable=True)
+            act.setMenuRole(QAction.MenuRole.NoRole)
+            act.setChecked(kind == self._type)
+            act.triggered.connect(lambda _=False, k=kind: self._choose_type(k))
+            self._type_actions.addAction(act)
+            self._type_menu.addAction(act)
+        self._chevron = QToolButton()
+        self._chevron.setObjectName("IconButton")
+        self._chevron.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._chevron.setMenu(self._type_menu)
+        self._chevron.setIconSize(QSize(16, 16))
+        self._chevron.setFixedSize(30, 30)
+        self._chevron.setToolTip("Order type")
+        self._chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.addWidget(self._chevron)
+        root.addLayout(header)
+
+        header_rule = QFrame()
+        header_rule.setObjectName("CardRule")
+        root.addWidget(header_rule)
+
+        # -- body ------------------------------------------------------------ #
+        body = QVBoxLayout()
+        body.setContentsMargins(22, 16, 22, 18)
+        body.setSpacing(11)
+
         grid = QGridLayout()
-        grid.setVerticalSpacing(11)
+        grid.setVerticalSpacing(10)
         grid.setHorizontalSpacing(10)
         grid.setColumnStretch(0, 1)
         r = 0
 
-        grid.addWidget(self._row_label("Order Type"), r, 0)
+        grid.addWidget(self._row_label("Order type"), r, 0)
         self._type_combo = QComboBox()
-        self._type_combo.addItems(["Market", "Limit"])
-        self._type_combo.currentTextChanged.connect(
-            lambda t: self._set_type("LIMIT" if t == "Limit" else "MARKET"))
-        self._type_combo.setFixedWidth(136)
+        self._type_combo.addItems(["Market order", "Limit order"])
+        self._type_combo.currentIndexChanged.connect(
+            lambda i: self._choose_type("LIMIT" if i == 1 else "MARKET"))
+        self._size_field(self._type_combo)
         grid.addWidget(self._type_combo, r, 1); r += 1
 
-        grid.addWidget(self._row_label("Invest In"), r, 0)
+        grid.addWidget(self._row_label("Invest in"), r, 0)
         self._mode_combo = QComboBox()
         self._mode_combo.addItems(["Shares", "Dollars"])
         self._mode_combo.currentTextChanged.connect(
             lambda t: self._set_mode("DOLLARS" if t == "Dollars" else "SHARES"))
-        self._mode_combo.setFixedWidth(136)
+        self._size_field(self._mode_combo)
         grid.addWidget(self._mode_combo, r, 1); r += 1
 
         self._amount_label = self._row_label("Shares")
         grid.addWidget(self._amount_label, r, 0)
-        amount_cell = QHBoxLayout(); amount_cell.setSpacing(6)
+        amount_cell = QHBoxLayout()
+        amount_cell.setSpacing(6)
         amount_cell.setContentsMargins(0, 0, 0, 0)
+        self._max_btn = QPushButton("Max")
+        self._max_btn.setObjectName("Ghost")
+        self._max_btn.setFixedSize(44, _FIELD_HEIGHT)
+        self._max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._max_btn.setToolTip("Fill in the most you can buy or sell")
+        self._max_btn.clicked.connect(self._fill_max)
         self._amount = QLineEdit()
         self._amount.setPlaceholderText("0")
         self._amount.setValidator(_positive_validator())
-        self._amount.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._amount.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._amount.setFixedHeight(_FIELD_HEIGHT)
+        self._amount.setFont(theme.tabular(self._amount.font()))
         self._amount.textChanged.connect(self._recompute)
         self._amount.returnPressed.connect(self._submit_order)
-        self._max_btn = QPushButton("Max")
-        self._max_btn.setObjectName("Ghost")
-        self._max_btn.setFixedWidth(46)
-        self._max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._max_btn.clicked.connect(self._fill_max)
-        amount_cell.addWidget(self._amount, 1); amount_cell.addWidget(self._max_btn)
-        amount_wrap = QWidget(); amount_wrap.setLayout(amount_cell)
-        amount_wrap.setFixedWidth(136)
+        amount_cell.addWidget(self._max_btn)
+        amount_cell.addWidget(self._amount, 1)
+        amount_wrap = QWidget()
+        amount_wrap.setObjectName("Clear")
+        amount_wrap.setLayout(amount_cell)
+        amount_wrap.setFixedWidth(_CONTROL_WIDTH)
         grid.addWidget(amount_wrap, r, 1); r += 1
 
-        self._limit_label = self._row_label("Limit Price")
+        self._limit_label = self._row_label("Limit price")
         grid.addWidget(self._limit_label, r, 0)
         self._limit_price = QLineEdit()
-        self._limit_price.setPlaceholderText("0.00")
+        self._limit_price.setPlaceholderText("$0.00")
         self._limit_price.setValidator(_positive_validator())
-        self._limit_price.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self._limit_price.setFixedWidth(136)
+        self._limit_price.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._size_field(self._limit_price)
+        self._limit_price.setFont(theme.tabular(self._limit_price.font()))
         self._limit_price.textChanged.connect(self._recompute)
         grid.addWidget(self._limit_price, r, 1); r += 1
 
-        grid.addWidget(self._row_label("Market Price"), r, 0)
-        self._market_price_val = self._row_value("—")
+        grid.addWidget(self._row_label("Market price"), r, 0)
+        self._market_price_val = self._row_value("—", bold=True)
         grid.addWidget(self._market_price_val, r, 1); r += 1
 
         grid.addWidget(self._row_label("Commissions"), r, 0)
         grid.addWidget(self._row_value("$0.00"), r, 1); r += 1
-        root.addLayout(grid)
+        body.addLayout(grid)
 
         # Extended-hours (pre-market / after-hours) — Alpaca limit orders only.
         self._ext_hours = QCheckBox("Extended-hours order")
@@ -151,50 +197,59 @@ class TradePanel(QWidget):
             "Fill during pre-market (4:00–9:30 ET) or after-hours (4:00–8:00 ET).\n"
             "Extended-hours orders must be limit orders for whole shares.")
         self._ext_hours.toggled.connect(self._recompute)
-        root.addWidget(self._ext_hours)
+        body.addWidget(self._ext_hours)
         self._session_hint = QLabel("")
-        self._session_hint.setObjectName("Muted")
-        self._session_hint.setStyleSheet("font-size: 11px;")
-        root.addWidget(self._session_hint)
+        self._session_hint.setObjectName("CardNote")
+        body.addWidget(self._session_hint)
         self._ext_hours.hide()
         self._session_hint.hide()
 
-        divider = QFrame(); divider.setObjectName("Divider")
-        divider.setFixedHeight(1)
-        root.addWidget(divider)
+        rule = QFrame()
+        rule.setObjectName("CardRule")
+        body.addSpacing(2)
+        body.addWidget(rule)
+        body.addSpacing(2)
 
         est_row = QHBoxLayout()
-        self._est_key = QLabel("Estimated Cost")
+        self._est_key = QLabel("Estimated cost")
         self._est_key.setObjectName("CardTotalKey")
         self._est_val = QLabel("—")
         self._est_val.setObjectName("CardTotalVal")
+        self._est_val.setFont(theme.tabular(self._est_val.font()))
         self._est_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        est_row.addWidget(self._est_key); est_row.addStretch(1); est_row.addWidget(self._est_val)
-        root.addLayout(est_row)
+        est_row.addWidget(self._est_key)
+        est_row.addStretch(1)
+        est_row.addWidget(self._est_val)
+        body.addLayout(est_row)
 
         self._buying_power = QLabel("")
-        self._buying_power.setObjectName("Body")
+        self._buying_power.setObjectName("CardNote")
         self._buying_power.setWordWrap(True)
-        root.addWidget(self._buying_power)
+        body.addWidget(self._buying_power)
 
         self._hint = QLabel("")
+        self._hint.setObjectName("Hint")
         self._hint.setWordWrap(True)
-        self._hint.setStyleSheet(f"color: {theme.loss_color()}; font-size: 12px;")
-        root.addWidget(self._hint)
+        self._hint.hide()
+        body.addWidget(self._hint)
 
+        body.addSpacing(4)
         self._submit = QPushButton("Buy")
         self._submit.setObjectName("BuyButton")
+        self._submit.setFixedHeight(theme.PILL_HEIGHT)
         self._submit.setCursor(Qt.CursorShape.PointingHandCursor)
         self._submit.clicked.connect(self._submit_order)
-        root.addWidget(self._submit)
+        body.addWidget(self._submit)
 
         self._owned_label = QLabel("")
-        self._owned_label.setObjectName("Muted")
+        self._owned_label.setObjectName("CardNote")
         self._owned_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._owned_label.setStyleSheet("font-size: 12px;")
-        root.addWidget(self._owned_label)
+        body.addWidget(self._owned_label)
 
-        self._limit_label.hide(); self._limit_price.hide()
+        root.addLayout(body)
+        self._limit_label.hide()
+        self._limit_price.hide()
+        self.refresh_theme()
 
     # ------------------------------------------------------------------ #
     # Context updates
@@ -212,6 +267,15 @@ class TradePanel(QWidget):
         self._cash = cash
         self._owned = owned_shares
         self._recompute()
+
+    def set_accent(self, name: str) -> None:
+        """Green on an up day, orange on a down one — tabs and pill alike."""
+        self._accent = name
+        for widget in (self._submit, self._buy_tab, self._sell_tab):
+            theme.set_accent(widget, name)
+
+    def refresh_theme(self) -> None:
+        self._chevron.setIcon(icons.icon("chevron_down", theme.color("text"), 16))
 
     def set_extended_hours_supported(self, supported: bool) -> None:
         """Enable the extended-hours option (only the Alpaca account supports it)."""
@@ -238,13 +302,17 @@ class TradePanel(QWidget):
     # ------------------------------------------------------------------ #
     # Widget helpers
     # ------------------------------------------------------------------ #
-    def _segment(self, text: str, checked: bool = False, name: str = "Segment") -> QPushButton:
+    def _header_tab(self, text: str, checked: bool = False) -> QPushButton:
         b = QPushButton(text)
-        b.setObjectName(name)
+        b.setObjectName("HeaderTab")
         b.setCheckable(True)
         b.setChecked(checked)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         return b
+
+    @staticmethod
+    def _size_field(widget: QWidget) -> None:
+        widget.setFixedSize(_CONTROL_WIDTH, _FIELD_HEIGHT)
 
     @staticmethod
     def _row_label(text: str) -> QLabel:
@@ -253,10 +321,11 @@ class TradePanel(QWidget):
         return lbl
 
     @staticmethod
-    def _row_value(text: str) -> QLabel:
+    def _row_value(text: str, bold: bool = False) -> QLabel:
         lbl = QLabel(text)
-        lbl.setObjectName("CardValue")
+        lbl.setObjectName("CardValue" if bold else "CardLabel")
         lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        lbl.setFont(theme.tabular(lbl.font()))
         return lbl
 
     # -- state changes ------------------------------------------------- #
@@ -266,11 +335,20 @@ class TradePanel(QWidget):
 
     def _set_side(self, side: str) -> None:
         self._side = side
-        is_buy = side == "BUY"
-        self._submit.setObjectName("BuyButton" if is_buy else "SellButton")
-        self._submit.style().unpolish(self._submit)
-        self._submit.style().polish(self._submit)
+        self._buy_tab.setChecked(side == "BUY")
+        self._sell_tab.setChecked(side == "SELL")
         self._recompute()
+
+    def _choose_type(self, order_type: str) -> None:
+        """One order type, whichever control picked it (chevron menu or row)."""
+        index = 1 if order_type == "LIMIT" else 0
+        if self._type_combo.currentIndex() != index:
+            self._type_combo.blockSignals(True)
+            self._type_combo.setCurrentIndex(index)
+            self._type_combo.blockSignals(False)
+        for act in self._type_actions.actions():
+            act.setChecked(act.text().upper().startswith(order_type))
+        self._set_type(order_type)
 
     def _set_type(self, order_type: str) -> None:
         self._type = order_type
@@ -291,13 +369,14 @@ class TradePanel(QWidget):
         self._session_hint.setVisible(show and extended)
         if extended:
             label = "Pre-market" if self._session == "PRE" else "After-hours"
-            self._session_hint.setText(f"● {label} session is open")
-            self._session_hint.setStyleSheet(
-                f"font-size: 11px; color: {theme.color('green')};")
+            self._session_hint.setText(
+                f"<span style='color:{theme.color('lime')}'>●</span>&nbsp; "
+                f"{label} session is open")
 
     def _set_mode(self, mode: str) -> None:
         self._mode = mode
-        self._amount_label.setText("Amount ($)" if mode == "DOLLARS" else "Shares")
+        self._amount_label.setText("Amount" if mode == "DOLLARS" else "Shares")
+        self._amount.setPlaceholderText("$0.00" if mode == "DOLLARS" else "0")
         self._recompute()
 
     def _reference_price(self) -> float | None:
@@ -324,15 +403,17 @@ class TradePanel(QWidget):
     def _recompute(self) -> None:
         is_buy = self._side == "BUY"
         action = self._action_label()
-        self._title.setText(action)
+        sym = self._symbol
+        self._buy_tab.setText(f"Buy {sym}".strip())
+        self._sell_tab.setText(f"Sell {sym}".strip())
         self._submit.setText(action)
-        self._est_key.setText("Estimated Cost" if is_buy else "Estimated Credit")
+        self._est_key.setText("Estimated cost" if is_buy else "Estimated credit")
         self._owned_label.setText(
             f"You own {fmt_shares(self._owned)} shares" if self._owned else "")
+        self._owned_label.setVisible(bool(self._owned))
         self._buying_power.setText(
             f"{fmt_money(self._cash)} buying power available. "
-            f"Commission-free — this is simulated paper trading."
-        )
+            f"Commission-free paper trading — no real money moves.")
 
         price = self._reference_price()
         amount = _parse(self._amount.text())
@@ -360,6 +441,7 @@ class TradePanel(QWidget):
 
         self._est_val.setText(fmt_money(est) if est is not None else "$0.00")
         self._hint.setText(hint)
+        self._hint.setVisible(bool(hint))
         self._submit.setEnabled(valid)
 
     def _submit_order(self) -> None:
@@ -384,7 +466,7 @@ def _positive_validator() -> QDoubleValidator:
 
 
 def _parse(text: str) -> float | None:
-    text = (text or "").strip().replace(",", "")
+    text = (text or "").strip().replace(",", "").replace("$", "")
     if not text:
         return None
     try:

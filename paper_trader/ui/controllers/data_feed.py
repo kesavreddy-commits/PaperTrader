@@ -14,6 +14,8 @@ requested when the user changes symbol so they don't wait for the next tick.
 
 from __future__ import annotations
 
+import time
+
 from PyQt6.QtCore import (
     QMetaObject,
     QMutex,
@@ -29,6 +31,9 @@ from ...config import (
     CHART_REFRESH_EVERY_TICKS,
     DEFAULT_RANGE,
     FEED_TICK_SECONDS,
+    SPARKLINE_POINTS,
+    SPARKLINE_REFRESH_SECONDS,
+    SPARKLINES_PER_TICK,
     WATCHLIST_REFRESH_EVERY_TICKS,
 )
 from ...data.market_data import (
@@ -46,6 +51,7 @@ class DataFeed(QObject):
     quoteReady = pyqtSignal(object)                 # Quote for the active symbol
     chartReady = pyqtSignal(str, str, object)       # symbol, range_key, list[Candle]
     watchlistQuotesReady = pyqtSignal(object)       # dict[symbol, Quote]
+    sparklinesReady = pyqtSignal(object)            # dict[symbol, list[float]]
     errorOccurred = pyqtSignal(str, str)            # (kind, message)
 
     def __init__(
@@ -65,6 +71,8 @@ class DataFeed(QObject):
         self._tick_count = 0
         self._timer: QTimer | None = None
         self._running = False
+        self._spark_at: dict[str, float] = {}   # symbol -> when its line was fetched
+        self._spark_paused_until = 0.0           # back off after a failed fetch
 
     # ------------------------------------------------------------------ #
     # Lifecycle (run in the worker thread)
@@ -138,6 +146,8 @@ class DataFeed(QObject):
         # Refresh the watchlist on the first tick and periodically thereafter.
         if watchlist and (self._tick_count % WATCHLIST_REFRESH_EVERY_TICKS == 1):
             self._fetch_watchlist(watchlist)
+        if watchlist:
+            self._fetch_sparklines(watchlist)
 
     def _fetch_active(self, symbol: str, range_key: str, want_chart: bool) -> None:
         if not symbol:
@@ -174,3 +184,46 @@ class DataFeed(QObject):
             return
         if quotes:
             self.watchlistQuotesReady.emit(quotes)
+
+    def _fetch_sparklines(self, symbols: list[str]) -> None:
+        """Refresh the watchlist's day-lines, oldest first, a couple per tick.
+
+        Best-effort decoration: failures are swallowed so a provider that can't
+        serve charts never spams the status line — and one failure pauses the
+        whole thing for a cycle, because a timing-out provider would otherwise
+        hold up the live quotes on this same thread on every tick.
+        """
+        now = time.monotonic()
+        if now < self._spark_paused_until:
+            return
+        due = [s for s in symbols
+               if now - self._spark_at.get(s, float("-inf")) >= SPARKLINE_REFRESH_SECONDS]
+        if not due:
+            return
+        due.sort(key=lambda s: self._spark_at.get(s, float("-inf")))
+        # Symbols that have never had a line get one straight away (a new
+        # window shouldn't fill in two rows at a time); refreshes trickle.
+        fresh = sum(1 for s in due if s not in self._spark_at)
+        batch = max(SPARKLINES_PER_TICK, min(fresh, 8))
+        lines: dict[str, list[float]] = {}
+        for symbol in due[:batch]:
+            self._spark_at[symbol] = now
+            try:
+                candles = self._service.get_candles(symbol, "1D")
+            except Exception:
+                self._spark_paused_until = now + SPARKLINE_REFRESH_SECONDS
+                break
+            closes = [c.close for c in candles]
+            if len(closes) > 1:
+                lines[symbol] = _thin(closes, SPARKLINE_POINTS)
+        if lines:
+            self.sparklinesReady.emit(lines)
+
+
+def _thin(values: list[float], points: int) -> list[float]:
+    """Evenly spaced samples of ``values`` (first and last kept)."""
+    n = len(values)
+    if n <= points:
+        return list(values)
+    step = (n - 1) / (points - 1)
+    return [values[round(i * step)] for i in range(points)]
