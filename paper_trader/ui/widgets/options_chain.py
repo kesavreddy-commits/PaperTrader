@@ -319,7 +319,7 @@ class OptionsChainView(QWidget):
             self._table.setItem(row, col, item)
         item.setText(text)
         if bold:
-            f = item.font(); f.setBold(True); item.setFont(f)
+            item.setFont(theme.strong(item.font()))
         item.setTextAlignment(
             (Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
             | Qt.AlignmentFlag.AlignVCenter)

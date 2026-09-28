@@ -822,6 +822,53 @@ def test_rolling_label_only_turns_changed_digits() -> None:
     label.close()
 
 
+def test_boxy_look_and_bundled_faces() -> None:
+    """The user's look: square boxes, Inter for big figures, Geist for small print.
+
+    Both faces ship with the app, so this holds on any machine; the classic
+    interface keeps its own rounded shapes and platform font.
+    """
+    import re
+    from pathlib import Path
+
+    from PyQt6.QtGui import QFont
+    from PyQt6.QtWidgets import QLabel
+
+    fonts = Path(theme.__file__).resolve().parent / "fonts"
+    check("both faces ship with their licences",
+          all((fonts / n).is_file() for n in ("Inter-Variable.ttf", "OFL-Inter.txt",
+                                              "Geist-Variable.ttf", "OFL-Geist.txt")))
+    win = _window()
+    check("Geist is the application (small-print) face", app.font().family() == "Geist")
+    check("Inter is the display face", theme.display_font_family() == "Inter")
+    radii = re.findall(r"border-radius:\s*([^;]+);", theme.build_stylesheet("dark"))
+    check("every corner in the stylesheet is square", radii and all(r == "0" for r in radii))
+    price = win._price_header._price_label.font()
+    check("the hero price is set in Inter", price.family() == "Inter")
+    check("in its Display cut", QFont.Tag("opsz") in price.variableAxisTags()
+          and price.variableAxisValue(QFont.Tag("opsz")) == 32)
+    cut = [win._price_header._price_label, win._price_header._name_label,
+           win._portfolio_bar._total,
+           *[w for w in win.findChildren(QLabel) if w.objectName() == "Wordmark"]]
+    check("each big label's optical size matches the size it is drawn at",
+          len(cut) == 4 and all(
+              w.font().variableAxisValue(QFont.Tag("opsz")) == min(32, w.font().pixelSize())
+              for w in cut))
+    check("with tabular figures", price.isFeatureSet(QFont.Tag("tnum")))
+    check("the portfolio total is set in Inter",
+          win._portfolio_bar._total.font().family() == "Inter")
+    labels = [w for w in win._trade_panel.findChildren(QLabel) if w.objectName() == "CardLabel"]
+    check("the order card's rows are set in Geist",
+          labels and all(w.font().family() == "Geist" for w in labels))
+    win.close()
+
+    theme.apply_theme(app, "dark", legacy=True)
+    check("the classic look keeps its platform font",
+          app.font().family() == theme.system_font_family())
+    check("and its rounded shapes", "border-radius: 24px" in theme.build_stylesheet("dark", True))
+    theme.apply_theme(app, "dark")
+
+
 def test_legacy_window_still_runs() -> None:
     """`run.py --old` keeps the previous interface working."""
     from paper_trader.ui_legacy.main_window import MainWindow as LegacyWindow
@@ -880,6 +927,7 @@ def main() -> int:
                test_watchlist_footer_takes_you_to_search,
                test_scrubbing_rolls_the_hero_price,
                test_rolling_label_only_turns_changed_digits,
+               test_boxy_look_and_bundled_faces,
                test_legacy_window_still_runs):
         fn()
     failed = [name for name, ok in _checks if not ok]

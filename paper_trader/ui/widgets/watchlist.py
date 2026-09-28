@@ -222,7 +222,7 @@ class _RowDelegate(QStyledItemDelegate):
         if selected or hovered:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(theme.color("selection" if selected else "hover")))
-            painter.drawRoundedRect(QRectF(rect), 6, 6)
+            painter.drawRect(QRectF(rect))
 
         inner = rect.adjusted(12, 0, -12, 0)
         symbol = index.data(_SYMBOL) or ""
@@ -236,7 +236,7 @@ class _RowDelegate(QStyledItemDelegate):
 
         base = QFont(option.font)
         bold = QFont(base)
-        bold.setWeight(QFont.Weight.Bold)
+        bold.setWeight(QFont.Weight.DemiBold)
         small = theme.resized(base, -2)
         theme.tabular(bold)
         mid_y = inner.center().y()

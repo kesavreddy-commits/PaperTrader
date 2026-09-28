@@ -140,7 +140,7 @@ class OptionsPositionsTable(QWidget):
         item.setText(text)
         # Set both every time: cells are reused across rebuilds (the empty-state
         # message included), so nothing may be left over from a previous use.
-        f = item.font(); f.setBold(bold); item.setFont(f)
+        item.setFont(theme.strong(item.font(), bold))
         item.setTextAlignment(
             (Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
             | Qt.AlignmentFlag.AlignVCenter)

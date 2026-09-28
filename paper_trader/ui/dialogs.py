@@ -298,11 +298,11 @@ class _SessionDelegate(QStyledItemDelegate):
         if option.state & (QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(theme.color("menu_hover")))
-            painter.drawRoundedRect(rect, 6, 6)
+            painter.drawRect(rect)
         inner = rect.adjusted(12, 8, -12, -8)
         base = QFont(option.font)
         bold = QFont(base)
-        bold.setWeight(QFont.Weight.Bold)
+        bold.setWeight(QFont.Weight.DemiBold)
         small = theme.resized(base, -1)
         half = inner.height() / 2
         name = index.data(_SESSION_NAME) or ""
@@ -373,8 +373,11 @@ def _metric_tile(title: str, value: str, color: str | None = None) -> QWidget:
     t = QLabel(title)
     t.setObjectName("StatTitle")
     v = QLabel(value)
+    v.setObjectName("MetricValue")
     v.setFont(theme.tabular(v.font()))
-    v.setStyleSheet("font-size: 20px; font-weight: 600;" + (f" color: {color};" if color else ""))
+    theme.display_cut(v, 20)
+    if color:
+        v.setStyleSheet(f"color: {color};")
     box.addWidget(t)
     box.addWidget(v)
     return w

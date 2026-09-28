@@ -17,10 +17,16 @@ Robinhood tints a stock's page by how that stock is doing today: its pills,
 tabs and links turn from green to orange on a down day. Widgets opt into that
 with the ``accent`` dynamic property (``"up"`` / ``"down"``); see
 :func:`set_accent`.
+
+The shapes are the user's own call rather than the reference's: everything is a
+square-cornered box — cards, fields, buttons, chips, menus, toasts — and the
+type is two bundled faces (see *Typeface* below): Inter for the big figures and
+headings, Geist for the small print.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from string import Template
 
 # --------------------------------------------------------------------------- #
@@ -232,6 +238,38 @@ def resized(font, delta_px: float):
     return out
 
 
+def display_cut(label, px: int):
+    """Set a display-face label's optical size to ``px``, the size it is drawn at.
+
+    Inter carries its Text (14) through Display (32) cuts on one ``opsz`` axis;
+    the Display cut is what keeps the hero figures tight and smooth. Qt doesn't
+    pick a cut by size and a stylesheet can't set an axis, so the big labels ask
+    for theirs here — before their first polish, since an axis set on a polished
+    widget is lost when it is re-polished. ``px`` must match the label's
+    stylesheet size (``tests/test_ui.py`` checks that it does).
+    """
+    if _legacy:
+        return label
+    from PyQt6.QtGui import QFont
+
+    font = label.font()
+    font.setVariableAxis(QFont.Tag("opsz"), float(min(32, max(14, px))))
+    label.setFont(font)
+    return label
+
+
+def strong(font, on: bool = True):
+    """Return ``font`` in the emphasis weight — semibold, not bold — or back to normal.
+
+    Tables and painted rows emphasise in semibold: Geist's bold reads heavy at
+    table sizes, and semibold matches the stylesheet's labels.
+    """
+    from PyQt6.QtGui import QFont
+
+    font.setWeight(QFont.Weight.DemiBold if on else QFont.Weight.Normal)
+    return font
+
+
 def tabular(font):
     """Return ``font`` with tabular (fixed-width) figures, where Qt supports it.
 
@@ -250,9 +288,8 @@ def tabular(font):
 # --------------------------------------------------------------------------- #
 # Stylesheet
 # --------------------------------------------------------------------------- #
-# Pill heights are fixed in code and each radius is exactly half of that height:
-# Qt silently squares off every corner of a box whose radius exceeds half its
-# size, which is how the pills here used to render as plain rectangles.
+# Control heights are fixed in code so rows of buttons line up. Every corner is
+# square (the user prefers a boxy look), so no radius has to track a height.
 PILL_HEIGHT = 44
 CHIP_HEIGHT = 30
 SEGMENT_TRACK_HEIGHT = 34
@@ -271,7 +308,7 @@ QToolTip {
     color: $text;
     border: 1px solid $card_border;
     padding: 6px 9px;
-    border-radius: 6px;
+    border-radius: 0;
 }
 
 /* ---------------------------------------------------------------- surfaces */
@@ -280,14 +317,14 @@ QFrame#Panel { background-color: $panel; border: none; }
 QFrame#Card {
     background-color: $card;
     border: 1px solid $card_border;
-    border-radius: 6px;
+    border-radius: 0;
 }
 QFrame#CardRule { background-color: $card_rule; border: none; min-height: 1px; max-height: 1px; }
 /* An outlined box that sits on the page (day stats, empty states). */
 QFrame#Box {
     background-color: transparent;
     border: 1px solid $border;
-    border-radius: 6px;
+    border-radius: 0;
 }
 QFrame#Divider { background-color: $rule; border: none; min-height: 1px; max-height: 1px; }
 QFrame#NavBar { background-color: $bg; border: none; }
@@ -295,35 +332,52 @@ QFrame#Strip { background-color: $bg; border: none; border-bottom: 1px solid $bo
 QFrame#Toast {
     background-color: $toast_bg;
     border: 1px solid $card_border;
-    border-radius: 10px;
+    border-radius: 0;
 }
 QWidget#Clear, QScrollArea#Clear, QWidget#CardViewport { background: transparent; }
 
 /* -------------------------------------------------------------------- type */
+/* Two faces: Inter (the display face) for the big figures and headings, Geist
+   (the application font) for everything small — labels, rows, tables, chips.
+   Geist runs a weight lighter than the old bold so small print stays smooth. */
 QLabel { background: transparent; }
-QLabel#Wordmark { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
-QLabel#Ticker { font-size: 32px; font-weight: 500; letter-spacing: -0.5px; }
-QLabel#BigPrice { font-size: 32px; font-weight: 500; letter-spacing: -0.5px; }
-QLabel#TickerChip { color: $text_muted; font-size: 13px; font-weight: 700; }
-QLabel#H1 { font-size: 26px; font-weight: 600; letter-spacing: -0.4px; }
-QLabel#H2 { font-size: 16px; font-weight: 700; }
-QLabel#H3 { font-size: 14px; font-weight: 700; }
+QLabel#Wordmark {
+    font-family: "$display_font"; font-size: 20px; font-weight: 600; letter-spacing: -0.2px;
+}
+QLabel#Ticker {
+    font-family: "$display_font"; font-size: 32px; font-weight: 600; letter-spacing: -0.4px;
+}
+QLabel#BigPrice {
+    font-family: "$display_font"; font-size: 32px; font-weight: 600; letter-spacing: -0.4px;
+}
+QLabel#H1 {
+    font-family: "$display_font"; font-size: 26px; font-weight: 600; letter-spacing: -0.3px;
+}
+QLabel#H2 { font-family: "$display_font"; font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+QLabel#SectionTitle {
+    font-family: "$display_font"; color: $text; font-size: 15px; font-weight: 600;
+    letter-spacing: -0.2px;
+}
+QLabel#CardTitle { font-family: "$display_font"; font-size: 16px; font-weight: 600; }
+QLabel#MetricValue {
+    font-family: "$display_font"; font-size: 20px; font-weight: 600; letter-spacing: -0.2px;
+}
+QLabel#TickerChip { color: $text_muted; font-size: 13px; font-weight: 600; }
+QLabel#H3 { font-size: 14px; font-weight: 600; }
 QLabel#Muted { color: $text_muted; }
 QLabel#Faint { color: $text_faint; }
-QLabel#Kicker { color: $text_muted; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; }
-QLabel#SectionTitle { color: $text; font-size: 15px; font-weight: 700; }
-QLabel#CardTitle { font-size: 16px; font-weight: 700; }
+QLabel#Kicker { color: $text_muted; font-size: 11px; font-weight: 600; letter-spacing: 0.9px; }
 QLabel#CardLabel { color: $text; font-size: 13px; }
-QLabel#CardValue { color: $text; font-size: 13px; font-weight: 700; }
-QLabel#CardTotalKey { color: $text; font-size: 14px; font-weight: 700; }
-QLabel#CardTotalVal { color: $text; font-size: 14px; font-weight: 700; }
+QLabel#CardValue { color: $text; font-size: 13px; font-weight: 600; }
+QLabel#CardTotalKey { color: $text; font-size: 14px; font-weight: 600; }
+QLabel#CardTotalVal { color: $text; font-size: 14px; font-weight: 600; }
 QLabel#CardNote { color: $text_muted; font-size: 12px; }
 QLabel#Body { color: $text_muted; font-size: 12px; }
 QLabel#StatTitle { color: $text_muted; font-size: 12px; }
 QLabel#StatValue { color: $text; font-size: 14px; font-weight: 600; }
 QLabel#StatusChip {
-    color: $text_muted; font-size: 12px; font-weight: 600;
-    border: 1px solid $border; border-radius: 13px; padding: 4px 11px;
+    color: $text_muted; font-size: 12px; font-weight: 500;
+    border: 1px solid $border_strong; border-radius: 0; padding: 4px 11px;
 }
 QLabel#ToastText { font-size: 13px; font-weight: 600; }
 QLabel#Hint { color: $red; font-size: 12px; }
@@ -332,7 +386,7 @@ QLabel#Hint { color: $red; font-size: 12px; }
 QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
     background-color: $input_bg;
     border: 1px solid $input_border;
-    border-radius: 4px;
+    border-radius: 0;
     padding: 7px 10px;
     color: $text;
     font-size: 13px;
@@ -353,7 +407,7 @@ QComboBox::down-arrow:disabled { image: url($select_arrows_disabled); }
 QComboBox QAbstractItemView {
     background-color: $card;
     border: 1px solid $card_border;
-    border-radius: 6px;
+    border-radius: 0;
     padding: 4px;
     selection-background-color: $menu_hover;
     selection-color: $text;
@@ -362,7 +416,7 @@ QComboBox QAbstractItemView {
 QLineEdit#SearchBox {
     background-color: $field_bg;
     border: 1px solid $border;
-    border-radius: 4px;
+    border-radius: 0;
     padding: 8px 12px 8px 38px;
     font-size: 14px;
 }
@@ -372,7 +426,7 @@ QLineEdit#SearchBox:focus { border: 1px solid $border_strong; }
 QPushButton {
     background-color: transparent;
     border: 1px solid $border_strong;
-    border-radius: 6px;
+    border-radius: 0;
     padding: 7px 14px;
     color: $text;
     font-weight: 600;
@@ -385,11 +439,11 @@ QPushButton:default {
 }
 QPushButton:default:hover { background-color: $green_hover; }
 
-/* The card's primary action: a full-width saturated pill. It follows the
+/* The card's primary action: a full-width saturated box. It follows the
    stock's day, green or orange, the way the reference page does. */
 QPushButton#BuyButton {
     background-color: $buy; color: $buy_text; border: none;
-    border-radius: 22px; padding: 0 18px; font-size: 14px; font-weight: 700;
+    border-radius: 0; padding: 0 18px; font-size: 14px; font-weight: 600;
 }
 QPushButton#BuyButton:hover { background-color: $green_hover; }
 QPushButton#BuyButton[accent="down"] { background-color: $sell; color: $sell_text; }
@@ -398,15 +452,15 @@ QPushButton#BuyButton:disabled { background-color: $buy_idle; color: $buy_idle_t
 QPushButton#BuyButton[accent="down"]:disabled { background-color: $sell_idle; color: $sell_idle_text; }
 QPushButton#SellButton {
     background-color: $sell; color: $sell_text; border: none;
-    border-radius: 22px; padding: 0 18px; font-size: 14px; font-weight: 700;
+    border-radius: 0; padding: 0 18px; font-size: 14px; font-weight: 600;
 }
 QPushButton#SellButton:hover { background-color: $red_hover; }
 QPushButton#SellButton:disabled { background-color: $sell_idle; color: $sell_idle_text; }
 
-/* Outlined pills under the card ("Trade AAPL Options", "Watch AAPL"). */
+/* Outlined boxes under the card ("Trade AAPL Options", "Watch AAPL"). */
 QPushButton#Outline {
     background: transparent; border: 1px solid $green; color: $green;
-    border-radius: 22px; padding: 0 18px; font-size: 14px; font-weight: 700;
+    border-radius: 0; padding: 0 18px; font-size: 14px; font-weight: 600;
 }
 QPushButton#Outline:hover { background-color: $green_wash; }
 QPushButton#Outline[accent="down"] { border-color: $red; color: $red; }
@@ -414,11 +468,11 @@ QPushButton#Outline[accent="down"]:hover { background-color: $red_wash; }
 QPushButton#Outline:disabled { border-color: $border_strong; color: $text_faint; }
 
 /* Top-nav controls: plain bold labels, links and pull-downs alike. The menus
-   carry no arrow; a soft pill on hover — and while the menu is open — is what
+   carry no arrow; a soft box on hover — and while the menu is open — is what
    says "this does something", which keeps the row even and uncluttered. */
 QPushButton#NavLink, QPushButton#NavMenu, QToolButton#NavLink {
-    background: transparent; border: none; border-radius: 8px; color: $text;
-    padding: 7px 12px; font-size: 14px; font-weight: 700;
+    background: transparent; border: none; border-radius: 0; color: $text;
+    padding: 7px 12px; font-size: 14px; font-weight: 600;
 }
 QPushButton#NavLink:hover, QPushButton#NavMenu:hover, QToolButton#NavLink:hover {
     background-color: $selection;
@@ -436,7 +490,7 @@ QPushButton#NavMenu::menu-indicator, QToolButton#NavLink::menu-indicator {
 QPushButton#RangeTab {
     background: transparent; border: none; border-radius: 0;
     color: $text; padding: 4px 0 9px 0; margin-right: 26px;
-    font-size: 12px; font-weight: 700; letter-spacing: 1.4px;
+    font-size: 12px; font-weight: 600; letter-spacing: 1.4px;
     border-bottom: 2px solid transparent;
 }
 QPushButton#RangeTab:hover { color: $green; }
@@ -445,21 +499,21 @@ QPushButton#RangeTab:checked { color: $text; border-bottom: 2px solid $text; }
 
 /* Small segmented toggles (Stock/Options, Line/Candles, Calls/Puts). */
 QPushButton#Segment {
-    background: transparent; border: none; border-radius: 14px;
+    background: transparent; border: none; border-radius: 0;
     padding: 0 13px; min-height: 28px; max-height: 28px;
-    color: $text_muted; font-size: 12px; font-weight: 700;
+    color: $text_muted; font-size: 12px; font-weight: 600;
 }
 QPushButton#Segment:hover { color: $text; }
 QPushButton#Segment:checked { background-color: $selection; color: $text; }
 QFrame#SegmentGroup {
-    background-color: transparent; border: 1px solid $border; border-radius: 17px;
+    background-color: transparent; border: 1px solid $border_strong; border-radius: 0;
 }
 
 /* The card's header tabs (Buy AAPL / Sell AAPL). */
 QPushButton#HeaderTab {
     background: transparent; border: none; border-radius: 0;
     padding: 0; margin-right: 20px;
-    color: $text_muted; font-size: 16px; font-weight: 700;
+    color: $text_muted; font-family: "$display_font"; font-size: 16px; font-weight: 600;
 }
 QPushButton#HeaderTab:hover { color: $text; }
 QPushButton#HeaderTab:checked { color: $green; }
@@ -467,7 +521,7 @@ QPushButton#HeaderTab[accent="down"]:checked { color: $red; }
 
 /* Expiration chips (options). */
 QPushButton#Chip {
-    background: transparent; border: 1px solid $border_strong; border-radius: 15px;
+    background: transparent; border: 1px solid $border_strong; border-radius: 0;
     padding: 0 12px; min-height: 28px; max-height: 28px;
     color: $text; font-size: 12px; font-weight: 600;
 }
@@ -476,14 +530,14 @@ QPushButton#Chip:checked { background-color: $text; color: $bg; border-color: $t
 
 /* The watchlist's footer row. */
 QPushButton#AddRow {
-    background: transparent; border: none; border-radius: 8px; color: $text_muted;
+    background: transparent; border: none; border-radius: 0; color: $text_muted;
     padding: 9px 10px; font-size: 13px; font-weight: 600; text-align: left;
 }
 QPushButton#AddRow:hover { background-color: $selection; color: $text; }
 
 QPushButton#Ghost {
     background: transparent; border: 1px solid $input_border; color: $text;
-    border-radius: 4px; padding: 0 9px; font-size: 12px; font-weight: 700;
+    border-radius: 0; padding: 0 9px; font-size: 12px; font-weight: 600;
 }
 QPushButton#Ghost:hover { background-color: $menu_hover; }
 QPushButton#Ghost:disabled { color: $text_faint; border-color: $border; }
@@ -491,13 +545,13 @@ QPushButton#Ghost:disabled { color: $text_faint; border-color: $border; }
 /* Contracts +/- stepper (option ticket). */
 QPushButton#Stepper {
     background-color: $input_bg; border: 1px solid $input_border;
-    border-radius: 4px; padding: 0;
+    border-radius: 0; padding: 0;
 }
 QPushButton#Stepper:hover { background-color: $menu_hover; }
 QPushButton#Stepper:disabled { border-color: $border; }
 
 QPushButton#IconButton, QToolButton#IconButton {
-    background: transparent; border: none; border-radius: 6px; padding: 4px;
+    background: transparent; border: none; border-radius: 0; padding: 4px;
 }
 QPushButton#IconButton:hover, QToolButton#IconButton:hover { background-color: $menu_hover; }
 QToolButton#IconButton::menu-indicator { image: none; width: 0; }
@@ -505,7 +559,7 @@ QToolButton#IconButton::menu-indicator { image: none; width: 0; }
 /* --------------------------------------------------------------- checkbox */
 QCheckBox { color: $text; spacing: 8px; font-size: 12px; background: transparent; }
 QCheckBox::indicator {
-    width: 16px; height: 16px; border-radius: 4px;
+    width: 16px; height: 16px; border-radius: 0;
     border: 1px solid $input_border; background: transparent;
 }
 QCheckBox::indicator:hover { border-color: $green; }
@@ -541,7 +595,7 @@ QTabBar::tab {
     background: transparent; color: $text_muted;
     padding: 4px 0 10px 0; margin-right: 26px;
     border: none; border-bottom: 2px solid transparent;
-    font-size: 13px; font-weight: 700;
+    font-size: 13px; font-weight: 600;
 }
 QTabBar::tab:hover { color: $text; }
 QTabBar::tab:selected { color: $text; border-bottom: 2px solid $text; }
@@ -550,21 +604,21 @@ QTabBar::tab:selected { color: $text; border-bottom: 2px solid $text; }
 QListWidget {
     background-color: $card;
     border: 1px solid $card_border;
-    border-radius: 8px;
+    border-radius: 0;
     outline: 0;
     padding: 6px;
 }
-QListWidget::item { padding: 8px 10px; border-radius: 6px; }
+QListWidget::item { padding: 8px 10px; border-radius: 0; }
 QListWidget::item:selected { background-color: $menu_hover; color: $text; }
 QListWidget::item:hover { background-color: $menu_hover; }
 QListView#Watchlist { background: transparent; border: none; padding: 0; }
 
 /* -------------------------------------------------------------- scrollbars */
 QScrollBar:vertical { background: transparent; width: 8px; margin: 2px 1px; }
-QScrollBar::handle:vertical { background: $scrollbar; border-radius: 3px; min-height: 32px; }
+QScrollBar::handle:vertical { background: $scrollbar; border-radius: 0; min-height: 32px; }
 QScrollBar::handle:vertical:hover { background: $border_strong; }
 QScrollBar:horizontal { background: transparent; height: 8px; margin: 1px 2px; }
-QScrollBar::handle:horizontal { background: $scrollbar; border-radius: 3px; min-width: 32px; }
+QScrollBar::handle:horizontal { background: $scrollbar; border-radius: 0; min-width: 32px; }
 QScrollBar::handle:horizontal:hover { background: $border_strong; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
@@ -572,12 +626,12 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 /* ------------------------------------------------------------------- menus */
 QMenuBar { background-color: $bg; color: $text; }
 QMenuBar::item { background: transparent; padding: 6px 10px; }
-QMenuBar::item:selected { background: $selection; border-radius: 6px; }
+QMenuBar::item:selected { background: $selection; border-radius: 0; }
 QMenu {
     background-color: $card; border: 1px solid $card_border;
-    border-radius: 8px; padding: 6px;
+    border-radius: 0; padding: 6px;
 }
-QMenu::item { padding: 7px 28px 7px 30px; border-radius: 5px; color: $text; }
+QMenu::item { padding: 7px 28px 7px 30px; border-radius: 0; color: $text; }
 QMenu::item:selected { background-color: $menu_hover; }
 QMenu::item:disabled { color: $text_faint; }
 QMenu::indicator { width: 14px; height: 14px; left: 9px; }
@@ -586,8 +640,8 @@ QMenu::separator { height: 1px; background: $card_rule; margin: 5px 6px; }
 
 /* ------------------------------------------------------------ dialog bits */
 QGroupBox {
-    border: 1px solid $border; border-radius: 6px; margin-top: 18px; padding: 10px;
-    font-weight: 700;
+    border: 1px solid $border; border-radius: 0; margin-top: 18px; padding: 10px;
+    font-weight: 600;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: $text_muted; }
 QRadioButton { spacing: 8px; background: transparent; }
@@ -862,17 +916,29 @@ def build_stylesheet(name: str, legacy: bool = False) -> str:
 
     values = dict(PALETTES[name])
     values.update(stylesheet_assets(PALETTES[name]))
+    values["display_font"] = display_font_family()
     return _QSS.substitute(values)
 
 
 # --------------------------------------------------------------------------- #
 # Typeface
 # --------------------------------------------------------------------------- #
+# The app ships its own two faces, under the SIL Open Font License (see
+# fonts/OFL-*.txt), so it looks the same on every machine: Inter, the display
+# face, for the big figures and headings; Geist, the text face, for everything
+# small. They are registered with Qt once, on first use.
+#
 # Qt matches font *families*, not CSS keywords: a stylesheet asking for
 # "-apple-system" (or any family that isn't installed) sends it off building
-# alias tables, warns, and then falls back to something generic. So we resolve a
-# family that actually exists once and set it as the application font; the
-# stylesheet only ever specifies size and weight.
+# alias tables, warns, and then falls back to something generic. So every family
+# handed to Qt — the application font, and the display face the stylesheet
+# names — is one that is really there: a bundled face that fails to load falls
+# back to the platform's own UI font.
+_FONT_DIR = Path(__file__).resolve().parent / "fonts"
+_BUNDLED_FONTS = {
+    "text": ("Geist-Variable.ttf", "Geist"),
+    "display": ("Inter-Variable.ttf", "Inter"),
+}
 _FONT_PREFERENCES = (
     "SF Pro Text", "SF Pro Display", "Inter",          # macOS / modern UI
     "Segoe UI Variable Text", "Segoe UI",              # Windows
@@ -880,10 +946,30 @@ _FONT_PREFERENCES = (
     "Helvetica Neue", "Helvetica", "Arial",            # last resorts
 )
 _resolved_font: str | None = None
+_bundled: dict[str, str] | None = None
 
 
-def ui_font_family() -> str:
-    """The best installed UI family: the platform's own, else a known fallback."""
+def _bundled_families() -> dict[str, str]:
+    """Register the bundled faces (once); ``{role: family}`` for those that loaded."""
+    global _bundled
+    if _bundled is not None:
+        return _bundled
+    try:
+        from PyQt6.QtGui import QFontDatabase, QGuiApplication
+    except Exception:
+        return {}
+    if QGuiApplication.instance() is None:   # the font database needs an app
+        return {}
+    _bundled = {}
+    for role, (file_name, family) in _BUNDLED_FONTS.items():
+        font_id = QFontDatabase.addApplicationFont(str(_FONT_DIR / file_name))
+        if font_id != -1 and family in QFontDatabase.applicationFontFamilies(font_id):
+            _bundled[role] = family
+    return _bundled
+
+
+def system_font_family() -> str:
+    """The best installed platform UI family: the platform's own, else a known fallback."""
     global _resolved_font
     if _resolved_font is not None:
         return _resolved_font
@@ -906,6 +992,24 @@ def ui_font_family() -> str:
         pass
     _resolved_font = "sans-serif"
     return _resolved_font
+
+
+def ui_font_family() -> str:
+    """The text face (Geist) — the application font and all the small print.
+
+    The classic interface (``run.py --old``) keeps the platform font it was
+    built with.
+    """
+    if _legacy:
+        return system_font_family()
+    return _bundled_families().get("text") or system_font_family()
+
+
+def display_font_family() -> str:
+    """The display face (Inter) for big figures and headings."""
+    if _legacy:
+        return system_font_family()
+    return _bundled_families().get("display") or ui_font_family()
 
 
 def apply_theme(app, name: str, legacy: bool = False) -> None:

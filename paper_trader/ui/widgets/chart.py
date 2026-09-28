@@ -639,7 +639,7 @@ class ChartWidget(QWidget):
         bg = theme.chart_colors()["background"]
         self._hover_label.setStyleSheet(
             f"font-size: 12px; font-weight: 600; color: {theme.color('text_muted')};"
-            f" background-color: {bg}; border-radius: 4px; padding: 2px 6px;")
+            f" background-color: {bg}; padding: 2px 6px;")
         self._sync_axis_visibility()
         self._last_key = None      # re-apply pens and colours on the next render
         self._render()

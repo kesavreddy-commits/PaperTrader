@@ -58,7 +58,10 @@ Alpaca APIs.
   search, a watchlist of live **sparklines**, the price hero, a full-height
   **line and candlestick** chart with a crosshair, key statistics, the Buy/Sell
   order card, and positions / history / open-orders tables. Dark **and** light
-  themes.
+  themes. Everything is a **square-cornered box** — cards, fields, buttons, chips,
+  menus, toasts — set in two bundled open-source faces: **Inter** (in its Display
+  cut) for the big figures and headings, **Geist** for the small print, both with
+  tabular figures so ticking prices stay put.
 - **A chart that reads like the reference** — scrub it and the hero's price
   **rolls** digit by digit to the value under the crosshair (up on a rise, down
   on a fall) while the change follows; the change line follows the range (*Today*, *Past
@@ -269,7 +272,8 @@ paper_trader/
     │   └── store.py           # atomic JSON sessions + settings, multi-session
     │
     ├── ui/                    # ── PRESENTATION (Qt) ──
-    │   ├── theme.py           # pure-black + light palettes, stylesheet, chart colors
+    │   ├── theme.py           # pure-black + light palettes, stylesheet, typefaces, chart colors
+    │   ├── fonts/             # bundled Inter + Geist (SIL OFL 1.1; licences alongside)
     │   ├── icons.py           # SVG icon set (logo, search, chevrons, checks, …)
     │   ├── anim.py            # rolling numbers & digit roll, price flash, fades (the motion layer)
     │   ├── format.py          # money/%/share/time formatting

@@ -75,6 +75,7 @@ class NavBar(QFrame):
         self._mark.setFixedSize(24, 24)
         wordmark = QLabel(title)
         wordmark.setObjectName("Wordmark")
+        theme.display_cut(wordmark, 20)
         root.addWidget(self._mark)
         root.addSpacing(9)
         root.addWidget(wordmark)
@@ -305,7 +306,7 @@ class _ResultDelegate(QStyledItemDelegate):
         if option.state & (QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(theme.color("menu_hover")))
-            painter.drawRoundedRect(rect, 6, 6)
+            painter.drawRect(rect)
 
         symbol = index.data(_SYMBOL) or ""
         name = index.data(_NAME) or ""
@@ -314,7 +315,7 @@ class _ResultDelegate(QStyledItemDelegate):
 
         base = QFont(option.font)
         bold = theme.resized(base, 1)
-        bold.setWeight(QFont.Weight.Bold)
+        bold.setWeight(QFont.Weight.DemiBold)
         painter.setFont(bold)
         painter.setPen(QColor(theme.color("text")))
         sym_w = max(QFontMetrics(bold).horizontalAdvance(symbol), 58)

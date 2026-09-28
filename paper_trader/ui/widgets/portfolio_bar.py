@@ -69,6 +69,7 @@ class PortfolioBar(QFrame):
         self._total = QLabel("$0.00")
         self._total.setObjectName("H1")
         self._total.setFont(theme.tabular(self._total.font()))
+        theme.display_cut(self._total, 26)
         self._total_roller = NumberRoller(self._total, fmt_money, duration=560)
         self._subline = QLabel("")
         self._subline.setTextFormat(Qt.TextFormat.RichText)
