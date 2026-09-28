@@ -143,12 +143,17 @@ class NavBar(QFrame):
     # Controls the owner installs
     # ------------------------------------------------------------------ #
     def add_menu(self, label: str, menu: QMenu) -> QPushButton:
-        # The chevron is the button's menu indicator, drawn by the stylesheet
-        # just after the label.
+        # No arrow beside the label: the stylesheet suppresses the menu
+        # indicator and shows hover / open states instead (see #NavMenu).
+        menu.setMinimumWidth(200)
         btn = QPushButton(label, self)
         btn.setObjectName("NavMenu")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setMenu(menu)
+        # ``:open`` is not reliably matched for a button's popup on every
+        # style, so the pill for "menu is showing" rides on a plain property.
+        menu.aboutToShow.connect(lambda b=btn: _set_open(b, True))
+        menu.aboutToHide.connect(lambda b=btn: _set_open(b, False))
         self._controls.addWidget(btn)
         return btn
 
@@ -271,6 +276,15 @@ class NavBar(QFrame):
         self.clear_search()
         if symbol:
             self.symbolChosen.emit(symbol)
+
+
+def _set_open(button: QPushButton, is_open: bool) -> None:
+    """Flag ``button`` as holding an open menu and restyle it."""
+    button.setProperty("open", is_open)
+    style = button.style()
+    style.unpolish(button)
+    style.polish(button)
+    button.update()
 
 
 def _dropdown_shadow(parent: QWidget) -> QGraphicsDropShadowEffect:

@@ -21,7 +21,7 @@ import os
 import tempfile
 
 from PyQt6.QtCore import QByteArray, QRectF, Qt
-from PyQt6.QtGui import QGuiApplication, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QGuiApplication, QIcon, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 
 # Every icon is drawn on a 24x24 grid; ``{c}`` is the stroke/fill colour.
@@ -42,10 +42,11 @@ _SVG: dict[str, str] = {
         '<path d="m6 9.5 6 6 6-6" stroke="{c}" stroke-width="2.4" fill="none" '
         'stroke-linecap="round" stroke-linejoin="round"/>'
     ),
-    # The up/down pair a native <select> shows (reference: "Invest In").
-    "chevron_updown": (
-        '<path d="m7.5 9.5 4.5-4.5 4.5 4.5M7.5 14.5l4.5 4.5 4.5-4.5" stroke="{c}" '
-        'stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+    # A slim, quiet chevron for select fields: the field's border already says
+    # "box", so the mark only has to say "opens" — no heavy up/down pair.
+    "chevron_select": (
+        '<path d="m7 10 5 5 5-5" stroke="{c}" stroke-width="1.9" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
     ),
     "check": (
         '<path d="m5.5 12.5 4.2 4.2 8.8-9.4" stroke="{c}" stroke-width="3" fill="none" '
@@ -117,14 +118,39 @@ def icon(name: str, color: str, size: int = 16) -> QIcon:
     return result
 
 
+def app_icon() -> QIcon:
+    """The brand mark on a black, rounded tile — the window and Dock icon.
+
+    Drawn rather than shipped as a file, so it stays in step with the mark in
+    the nav bar and needs no asset on disk.
+    """
+    result = QIcon()
+    for size in (16, 32, 64, 128, 256, 512):
+        tile = QPixmap(size, size)
+        tile.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(tile)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#0b0c0e"))
+        margin = size * 0.06                       # leave the tile's own breathing room
+        painter.drawRoundedRect(QRectF(margin, margin, size - 2 * margin, size - 2 * margin),
+                                size * 0.22, size * 0.22)
+        mark = size * 0.52
+        offset = (size - mark) / 2
+        renderer = QSvgRenderer(QByteArray(_svg("logo", "#00c805")))
+        renderer.render(painter, QRectF(offset, offset, mark, mark))
+        painter.end()
+        result.addPixmap(tile)
+    return result
+
+
 # --------------------------------------------------------------------------- #
 # Files for the stylesheet
 # --------------------------------------------------------------------------- #
 # (file name, icon, palette key) — what the stylesheet refers to by path.
 _STYLESHEET_ICONS = (
-    ("select-arrows.svg", "chevron_updown", "text"),
-    ("select-arrows-disabled.svg", "chevron_updown", "text_faint"),
-    ("chevron-down.svg", "chevron_down", "text"),
+    ("select-arrows.svg", "chevron_select", "text_muted"),
+    ("select-arrows-disabled.svg", "chevron_select", "text_faint"),
     ("check.svg", "check", "check_mark"),
     ("menu-check.svg", "check", "green"),
 )

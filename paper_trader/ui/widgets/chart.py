@@ -359,7 +359,6 @@ class ChartWidget(QWidget):
         # without a scale to read them against.
         self._show_axes = False
         self._show_grid = False
-        self._show_last_price = True
         # The series is mirrored into numpy arrays: the zoom handler runs on
         # every wheel step and must not walk a Python list of candles each time.
         self._xs = np.empty(0)
@@ -430,13 +429,11 @@ class ChartWidget(QWidget):
         # Anchored top-centre and hung just inside the top edge, so the
         # caption sits under the ceiling instead of being clipped by it.
         self._time_label = pg.TextItem(anchor=(0.5, 0.0))
-        # Where the series ends, and what it ends at — the two things you look
-        # for first on a price chart.
+        # Where the series ends: a plain dot, as on the reference. No price tag
+        # beside it — the hero above already says what the price is.
         self._last_dot = pg.ScatterPlotItem(size=8, pen=pg.mkPen(None))
-        # A filled tag, so the level stays readable where it overlaps the line.
-        self._last_label = pg.TextItem(anchor=(1.05, 0.5), ensureInBounds=True)
         for item in (self._baseline, self._line_item, self._line_live, self._line_hi,
-                     self._candle_item, self._last_dot, self._last_label,
+                     self._candle_item, self._last_dot,
                      self._vline, self._dot, self._time_label):
             self._plot.addItem(item)
         self._line_live.hide()
@@ -445,7 +442,6 @@ class ChartWidget(QWidget):
         self._time_label.hide()
         self._baseline.hide()
         self._last_dot.hide()
-        self._last_label.hide()
         self._line_hi.hide()
         self._plot.scene().sigMouseMoved.connect(self._on_mouse_moved)
 
@@ -593,21 +589,17 @@ class ChartWidget(QWidget):
         self._lows = np.fromiter((c.low for c in self._candles), float, len(self._candles))
         self._highs = np.fromiter((c.high for c in self._candles), float, len(self._candles))
 
-    def set_chrome(self, *, axes: bool | None = None, grid: bool | None = None,
-                   last_price: bool | None = None) -> None:
-        """Turn the axes, gridlines and last-price tag on or off."""
+    def set_chrome(self, *, axes: bool | None = None, grid: bool | None = None) -> None:
+        """Turn the axes and gridlines on or off."""
         if axes is not None:
             self._show_axes = bool(axes)
         if grid is not None:
             self._show_grid = bool(grid)
-        if last_price is not None:
-            self._show_last_price = bool(last_price)
         self._sync_axis_visibility()
         self._render()
 
     def chrome(self) -> dict[str, bool]:
-        return {"axes": self._show_axes, "grid": self._show_grid,
-                "last_price": self._show_last_price}
+        return {"axes": self._show_axes, "grid": self._show_grid}
 
     def reset_zoom(self) -> None:
         """Frame the whole series again after the user has zoomed in."""
@@ -637,9 +629,6 @@ class ChartWidget(QWidget):
         label_font = QFont(theme.ui_font_family())
         label_font.setPixelSize(12)
         label_font.setWeight(QFont.Weight.DemiBold)
-        self._last_label.setFont(label_font)
-        self._last_label.fill = pg.mkBrush(c["tag_fill"])
-        self._last_label.border = pg.mkPen(c["tag_border"])
         self._vline.setPen(pg.mkPen(c["crosshair"], width=1))
         self._time_label.setFont(label_font)
         self._time_label.setColor(c["time_text"])
@@ -706,7 +695,6 @@ class ChartWidget(QWidget):
             self._candle_item.clear()
             self._baseline.hide()
             self._last_dot.hide()
-            self._last_label.hide()
             self._runs = []
             self._segmented = False
             self._frame = None
@@ -777,7 +765,7 @@ class ChartWidget(QWidget):
         # A periodic data refresh shouldn't re-snap a view the user has zoomed;
         # only a genuinely new dataset re-frames unconditionally.
         self._autoscale_y(force=is_new)
-        self._draw_last_price(self._live_color if self._mode == "line" else bright)
+        self._draw_last_dot(self._live_color if self._mode == "line" else bright)
         self._sync_reset_button()
         self._last_key = key
 
@@ -808,50 +796,19 @@ class ChartWidget(QWidget):
         right = span * 0.012 if x1 <= float(self._xs[-1]) else 0.0
         self._plot.setXRange(x0, x1 + right, padding=0)
 
-    def _draw_last_price(self, color: str) -> None:
-        """Mark where the series ends and print the level next to it."""
-        if not len(self._xs) or not self._show_last_price:
+    def _draw_last_dot(self, color: str) -> None:
+        """Mark where the series ends."""
+        if not len(self._xs):
             self._last_dot.hide()
-            self._last_label.hide()
             return
-        x = float(self._xs[-1])
-        y = float(self._closes[-1])
-        self._last_dot.setData([x], [y], brush=pg.mkBrush(color), pen=pg.mkPen(None))
-        self._last_label.setText(fmt_price(y))
-        self._last_label.setColor(color)
+        self._last_dot.setData([float(self._xs[-1])], [float(self._closes[-1])],
+                               brush=pg.mkBrush(color), pen=pg.mkPen(None))
         self._last_dot.show()
-        self._last_label.show()
-        self._place_last_label()
-
-    def _place_last_label(self) -> None:
-        """Put the price tag beside the line's end, or pin it to the view's edge.
-
-        On a live day there is open space after the line, so the tag sits just
-        past the last point. When the line runs to the edge (or the end is
-        scrolled out of view) it pins to the right edge of the *view* — hung off
-        the data there, it was clipped to a stray dollar sign.
-        """
-        if not (self._show_last_price and self._last_label.isVisible() and len(self._closes)):
-            return
-        vb = self._plot.getViewBox()
-        (x0, x1), _ = vb.viewRange()
-        last_x = float(self._xs[-1])
-        y = float(self._closes[-1])
-        px_w = vb.viewPixelSize()[0] or 0.0
-        tag_w = self._last_label.boundingRect().width() * px_w
-        gap = 10 * px_w
-        if x0 <= last_x and last_x + gap + tag_w * 1.1 < x1:
-            self._last_label.setAnchor((0.0, 0.5))
-            self._last_label.setPos(last_x + gap, y)
-        else:
-            self._last_label.setAnchor((1.05, 0.5))
-            self._last_label.setPos(float(x1), y)
 
     # ------------------------------------------------------------------ #
     # Zoom: x is user-driven, y always refits the visible window
     # ------------------------------------------------------------------ #
     def _on_x_range_changed(self, *_args) -> None:
-        self._place_last_label()
         if self._suppress_autoscale:
             return
         self._autoscale_y()

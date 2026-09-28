@@ -16,11 +16,13 @@ from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPushButton,
     QStyle,
     QStyledItemDelegate,
     QVBoxLayout,
@@ -28,7 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...data.models import Quote
-from .. import theme
+from .. import icons, theme
 from ..format import fmt_price, fmt_signed_pct
 
 _ROW_HEIGHT = 58
@@ -49,6 +51,7 @@ _DATA_ROLES = (_NAME, _PRICE, _CHANGE, _PCT, _SPARK, _REF)
 class WatchlistPanel(QWidget):
     symbolSelected = pyqtSignal(str)       # user clicked a symbol to view it
     watchlistChanged = pyqtSignal(object)  # list[str] — persisted by the owner
+    addRequested = pyqtSignal()            # the footer row: take me to the search box
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -89,11 +92,22 @@ class WatchlistPanel(QWidget):
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         root.addWidget(self._list, 1)
 
-        self._hint = QLabel("Search above to add a symbol.")
-        self._hint.setObjectName("Faint")
-        self._hint.setStyleSheet("font-size: 12px;")
-        self._hint.setWordWrap(True)
-        root.addWidget(self._hint)
+        # A footer row rather than a caption: where the eye lands after the last
+        # symbol, and it takes you to the search box that adds one.
+        rule = QFrame()
+        rule.setObjectName("Divider")
+        root.addWidget(rule)
+        self._add = QPushButton("Add a symbol")
+        self._add.setObjectName("AddRow")
+        self._add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add.setIconSize(QSize(14, 14))
+        self._add.setToolTip("Search for a symbol to add to the list")
+        self._add.clicked.connect(lambda _=False: self.addRequested.emit())
+        root.addWidget(self._add)
+        self.refresh_theme()
+
+    def refresh_theme(self) -> None:
+        self._add.setIcon(icons.icon("plus", theme.color("text_muted"), 14))
 
     # ------------------------------------------------------------------ #
     # Watchlist data

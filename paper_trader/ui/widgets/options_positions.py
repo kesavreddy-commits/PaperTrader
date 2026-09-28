@@ -89,6 +89,7 @@ class OptionsPositionsTable(QWidget):
             item = QTableWidgetItem(
                 "No option positions — switch to Options mode and pick a contract from the chain.")
             item.setForeground(QColor(theme.muted_color()))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self._table.setItem(0, 0, item)
             self._table.setSpan(0, 0, 1, len(_COLUMNS))
@@ -137,10 +138,12 @@ class OptionsPositionsTable(QWidget):
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row, col, item)
         item.setText(text)
-        if bold:
-            f = item.font(); f.setBold(True); item.setFont(f)
-        if right:
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # Set both every time: cells are reused across rebuilds (the empty-state
+        # message included), so nothing may be left over from a previous use.
+        f = item.font(); f.setBold(bold); item.setFont(f)
+        item.setTextAlignment(
+            (Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
+            | Qt.AlignmentFlag.AlignVCenter)
         item.setForeground(QColor(color) if color else QColor(theme.color("text")))
 
     # ------------------------------------------------------------------ #

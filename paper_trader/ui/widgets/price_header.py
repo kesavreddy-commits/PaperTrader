@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 
 from ...data.models import Quote
 from .. import theme
-from ..anim import ColorFlash, NumberRoller
+from ..anim import ColorFlash, NumberRoller, RollingLabel
 from ..format import (
     fmt_compact,
     fmt_price,
@@ -81,7 +81,9 @@ class PriceHeader(QWidget):
         root.addLayout(ident)
 
         # -- price ------------------------------------------------------------ #
-        self._price_label = QLabel("—")
+        # A rolling label: live ticks count up to the new price, and scrubbing the
+        # chart turns the digits over as the crosshair moves (see show_point).
+        self._price_label = RollingLabel("—")
         self._price_label.setObjectName("BigPrice")
         self._price_label.setFont(theme.tabular(self._price_label.font()))
         self._price_roller = NumberRoller(self._price_label, fmt_price, duration=420)
@@ -155,7 +157,7 @@ class PriceHeader(QWidget):
     def show_point(self, price: float) -> None:
         """Show the price under the chart's crosshair (Robinhood-style scrub)."""
         self._hovering = True
-        self._price_roller.set_value(price, animate=False)
+        self._price_roller.set_value(price, animate=False, roll=True)
         self._render_change(price)
 
     def clear_point(self) -> None:
@@ -164,7 +166,7 @@ class PriceHeader(QWidget):
             return
         self._hovering = False
         if self._last_price is not None:
-            self._price_roller.set_value(self._last_price, animate=False)
+            self._price_roller.set_value(self._last_price, animate=False, roll=True)
             self._render_change(self._last_price)
 
     @property

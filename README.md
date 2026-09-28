@@ -10,7 +10,7 @@ historical charts, and place market & limit orders with fractional shares.
 Everything runs on your machine; the only outbound traffic is to the market-data /
 Alpaca APIs.
 
-![Paper Trader — dark mode, live Alpaca prices on the local simulator](docs/screenshot.png)
+![Paper Trader — dark mode on the local simulator](docs/screenshot.png)
 
 <p align="center"><em>Options mode — a live Black-Scholes chain, the order ticket with Greeks, and open option positions:</em></p>
 
@@ -59,8 +59,9 @@ Alpaca APIs.
   **line and candlestick** chart with a crosshair, key statistics, the Buy/Sell
   order card, and positions / history / open-orders tables. Dark **and** light
   themes.
-- **A chart that reads like the reference** — scrub it and the hero's price and
-  change follow the crosshair; the change line follows the range (*Today*, *Past
+- **A chart that reads like the reference** — scrub it and the hero's price
+  **rolls** digit by digit to the value under the crosshair (up on a rise, down
+  on a fall) while the change follows; the change line follows the range (*Today*, *Past
   week* … *All time*) and the whole page tints green or orange with it. The 1D
   chart draws pre-market, the regular session and after-hours in their own
   colours and runs out to the end of the trading day; multi-day ranges take out
@@ -70,9 +71,9 @@ Alpaca APIs.
   and the price axis refits itself to whatever is on screen in a single range
   change, so zooming magnifies the candles instead of squashing them into a flat
   band, without the price scale lagging a frame behind. The line view is
-  chrome-free by default (just the price, a dotted previous-close reference, the
-  last-price tag and the crosshair) and the **Theme** menu turns axes, gridlines,
-  the price tag and animations on or off.
+  chrome-free by default (just the price, a dotted previous-close reference, a dot
+  where the line ends and the crosshair) and the **Theme** menu turns axes,
+  gridlines and animations on or off.
 - **Never blocks on the network** — market data and the account poll run on their
   own threads, and orders against a remote broker are dispatched to a worker while
   the ticket shows *Submitting…*, so an eight-second HTTP timeout can't freeze the
@@ -148,13 +149,13 @@ python tests/test_alpaca.py        # live Alpaca provider + broker (skips withou
 | **Top nav** | The sidebar button (left) shows or hides the watchlist. **Search** any symbol or company name (`⌘F` / `Ctrl+F`); pick a result to chart and watch it. Typing a symbol and pressing Return validates it with the data provider first, so nothing unrecognised ever reaches your watchlist. **Account** switches trading account and holds your API keys, **Market Data** switches provider, plus **Analytics** and **Theme**. The chip on the right shows the live account + data source. |
 | **Account strip** | Total value, today's change, all-time return, and buying-power / market-value / invested / unrealized / realized tiles. |
 | **Watchlist (left rail)** | Each row shows the day's sparkline against the previous close, the price and the day's change. Click a row to chart it; right-click to remove. Persists per session. Hide it with the sidebar button or **View → Show Watchlist** (`Ctrl+L`) — the choice is remembered. |
-| **Centre (Stock / Options)** | The **Stock ⁄ Options** and **Line ⁄ Candles** switches sit beside the price. In **Stock** mode: the big chart — ranges `1D … ALL` under it; hover for a crosshair with the time caption (candles get an OHLC readout) while the hero shows the hovered price and its change; the line lights up to the cursor (on `1D`, the hovered session). The dotted `1D` line is the previous close and the tag is the last price; **Key statistics** (open, high, low, previous close, volume) sit under the chart when there is room. The line view is deliberately bare; **Theme → Chart** turns axes and gridlines on if you want them. **Scroll to zoom the time axis** — the price axis refits the visible bars, so candles genuinely magnify — then **Reset zoom** to go back. In **Options** mode: a live **options chain** — pick an expiration, flip **Calls / Puts**, click a strike (the ladder auto-centres on the money) to load it into the ticket. |
+| **Centre (Stock / Options)** | The **Stock ⁄ Options** and **Line ⁄ Candles** switches sit beside the price. In **Stock** mode: the big chart — ranges `1D … ALL` under it; hover for a crosshair with the time caption (candles get an OHLC readout) while the hero's price rolls to the hovered value and its change follows; the line lights up to the cursor (on `1D`, the hovered session). The dotted `1D` line is the previous close and a dot marks where the line ends; **Key statistics** (open, high, low, previous close, volume) sit under the chart when there is room. The line view is deliberately bare; **Theme → Chart** turns axes and gridlines on if you want them. **Scroll to zoom the time axis** — the price axis refits the visible bars, so candles genuinely magnify — then **Reset zoom** to go back. In **Options** mode: a live **options chain** — pick an expiration, flip **Calls / Puts**, click a strike (the ladder auto-centres on the money) to load it into the ticket. |
 | **Order card (right)** | **Stock:** *Buy ⁄ Sell* tabs in the header (the chevron picks market or limit), order type, amount in **Shares or Dollars**, **Max**, market price, commissions and estimated cost. **Options:** a card whose label reflects open vs close (*Buy to Open*, *Sell to Close*, …), a contracts stepper, live bid/mark/ask + Δ/θ/IV, estimated cost/credit and the collateral note for shorts. Beneath it: **Trade options** and **Watch / Unwatch** for the active symbol. |
 | **Notices** | Fills, cancellations and errors appear as a toast at the bottom of the window; an error clears itself once data flows again. |
 | **Bottom tabs** | **Positions** (stocks), **Options** (each contract's qty, avg premium, mark, value, P&L, Δ, DTE, one-click Close), **History** (every fill incl. options & expirations), **Orders** (resting limit orders with Cancel). |
 | **File menu** | New / Open / Rename / Reset / Save session. |
 | **Account menu** | Trading account, Alpaca API keys, Analytics (`Ctrl+A`) — Sharpe, volatility, drawdown, win rate, equity curve. |
-| **Theme menu** | Dark / light, and how much chart furniture to draw: **price & time axes**, **gridlines**, the **last-price tag**, and **animations**. The line view ships bare (no axes, no grid) — the candlestick view always keeps its scales. Every choice persists. |
+| **Theme menu** | Dark / light, and how much chart furniture to draw: **price & time axes**, **gridlines**, and **animations**. The line view ships bare (no axes, no grid) — the candlestick view always keeps its scales. Every choice persists. |
 | **View menu** | The same chart switches under **Chart Display**, dark/light (`Ctrl+D`), the market-data source, and focus search. |
 | **Resizing** | The bars between the watchlist, chart and order card — and between the chart and the blotter — are draggable, with minimums so no pane can be dragged out of existence. Narrow tables drop their least important columns rather than scroll sideways. |
 
@@ -270,7 +271,7 @@ paper_trader/
     ├── ui/                    # ── PRESENTATION (Qt) ──
     │   ├── theme.py           # pure-black + light palettes, stylesheet, chart colors
     │   ├── icons.py           # SVG icon set (logo, search, chevrons, checks, …)
-    │   ├── anim.py            # rolling numbers, price flash, fades (the motion layer)
+    │   ├── anim.py            # rolling numbers & digit roll, price flash, fades (the motion layer)
     │   ├── format.py          # money/%/share/time formatting
     │   ├── tables.py          # shared table chrome: row hover, columns that drop to fit
     │   ├── nav_bar.py         # top bar: wordmark, symbol search, account controls

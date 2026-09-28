@@ -177,7 +177,6 @@ class MainWindow(QMainWindow):
         self._chrome = {
             "axes": bool(settings.get("chart_axes", False)),
             "grid": bool(settings.get("chart_grid", False)),
-            "last_price": bool(settings.get("chart_last_price", True)),
         }
         anim.ENABLED = bool(settings.get("animations", True))
         self._show_watchlist = bool(settings.get("show_watchlist", True))
@@ -354,6 +353,7 @@ class MainWindow(QMainWindow):
         self._watchlist = WatchlistPanel()
         self._watchlist.symbolSelected.connect(self.set_active_symbol)
         self._watchlist.watchlistChanged.connect(self._on_watchlist_changed)
+        self._watchlist.addRequested.connect(self._nav.focus_search)
         rail = QFrame()
         rail.setObjectName("Panel")
         rail_box = QVBoxLayout(rail)
@@ -473,8 +473,6 @@ class MainWindow(QMainWindow):
              "Off keeps the line view bare — the candlestick view always shows "
              "its price and time scales."),
             ("grid", "Gridlines", "Faint horizontal rules behind the price."),
-            ("last_price", "Last-price tag",
-             "A tag pinned to the right edge with the latest price."),
         ):
             act = QAction(label, self, checkable=True)
             act.setMenuRole(QAction.MenuRole.NoRole)
@@ -1285,6 +1283,7 @@ class MainWindow(QMainWindow):
             act.setChecked(act.text().lower() == name)
         self._chart.apply_theme()
         self._nav.refresh_theme()
+        self._watchlist.refresh_theme()
         self._trade_panel.refresh_theme()
         self._option_ticket.refresh_theme()
         self._options_chain.refresh_theme()

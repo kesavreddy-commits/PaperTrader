@@ -164,10 +164,12 @@ def _set(table: QTableWidget, row: int, col: int, text: str, *, bold: bool = Fal
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         table.setItem(row, col, item)
     item.setText(text)
-    if bold:
-        f = item.font(); f.setBold(True); item.setFont(f)
-    if right:
-        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    # Set both every time: cells are reused across rebuilds (the empty-state
+    # message included), so nothing may be left over from a previous use.
+    f = item.font(); f.setBold(bold); item.setFont(f)
+    item.setTextAlignment(
+        (Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft)
+        | Qt.AlignmentFlag.AlignVCenter)
     item.setForeground(QColor(color) if color else QColor(theme.color("text")))
 
 
@@ -178,6 +180,7 @@ def _show_empty(table: QTableWidget, ncols: int, message: str) -> None:
         table.removeCellWidget(0, c)
     item = QTableWidgetItem(message)
     item.setForeground(QColor(theme.muted_color()))
+    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     table.setItem(0, 0, item)
     table.setSpan(0, 0, 1, ncols)

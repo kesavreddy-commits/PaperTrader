@@ -13,15 +13,17 @@ the first time, or motion is disabled, the target simply jumps to the final stat
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from PyQt6.QtCore import (
     QEasingCurve,
     QObject,
     QPropertyAnimation,
+    Qt,
     QVariantAnimation,
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QPainter, QPalette
 from PyQt6.QtWidgets import QGraphicsOpacityEffect, QLabel, QWidget
 
 # One switch to disable all motion (e.g. for reduced-motion or tests).
@@ -61,7 +63,14 @@ class NumberRoller(QObject):
     def _on_step(self, v) -> None:
         self._label.setText(self._fmt(float(v)))
 
-    def set_value(self, value: float | None, animate: bool = True) -> None:
+    def set_value(self, value: float | None, animate: bool = True,
+                  roll: bool = False) -> None:
+        """Show ``value``, counting up to it when ``animate`` is on.
+
+        With ``roll`` the new figure goes to the label as a digit *roll* (see
+        :class:`RollingLabel`) instead of a count: the right motion when the
+        value is being steered by the cursor, where a tween would trail it.
+        """
         if value is None:
             self._anim.stop()
             self._value = None
@@ -70,7 +79,11 @@ class NumberRoller(QObject):
         if (self._value is None or not ENABLED or not animate
                 or abs(value - self._value) < self._min_delta):
             self._anim.stop()
-            self._label.setText(self._fmt(value))
+            text = self._fmt(value)
+            if roll and hasattr(self._label, "roll_to"):
+                self._label.roll_to(text)
+            else:
+                self._label.setText(text)
             self._value = value
             return
         self._anim.stop()
@@ -82,6 +95,122 @@ class NumberRoller(QObject):
     @property
     def value(self) -> float | None:
         return self._value
+
+
+# --------------------------------------------------------------------------- #
+# Digit roll (scrubbing)
+# --------------------------------------------------------------------------- #
+class RollingLabel(QLabel):
+    """A label that rolls the characters that change, the way Robinhood's price does.
+
+    :meth:`roll_to` sets the text at once (``text()`` is always the final
+    string) and then plays a short slide over just the characters that differ
+    from what was showing: the old one leaves and the new one arrives, upward
+    when the figure rose and downward when it fell, clipped to the label so it
+    reads as a reel turning. Characters that did not change stay put, so a
+    ``$402.90 → $402.95`` move only turns the last digit.
+
+    Plain :meth:`setText` (including the frames of a :class:`NumberRoller`
+    tween) cancels any roll in flight and shows the text as is.
+    """
+
+    def __init__(self, text: str = "", parent: QWidget | None = None,
+                 duration: int = 170) -> None:
+        super().__init__(text, parent)
+        self._old = ""
+        self._new = ""
+        self._dir = 1
+        self._t = 1.0                       # 1.0 = at rest
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(duration)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.valueChanged.connect(self._on_step)
+        self._anim.finished.connect(self._on_done)
+
+    # -- API ------------------------------------------------------------- #
+    def setText(self, text: str) -> None:  # noqa: N802 (Qt naming)
+        self._settle()
+        super().setText(text)
+
+    def roll_to(self, text: str) -> None:
+        current = self.text()
+        if text == current:
+            return
+        if not ENABLED or not current or not self.isVisible():
+            self.setText(text)              # nothing to roll from, or motion is off
+            return
+        self._old, self._new = current, text
+        self._dir = _direction(current, text)
+        super().setText(text)
+        self._t = 0.0
+        self._anim.stop()
+        self._anim.start()
+
+    def is_rolling(self) -> bool:
+        return self._t < 1.0
+
+    # -- animation ------------------------------------------------------- #
+    def _settle(self) -> None:
+        self._anim.stop()
+        self._t = 1.0
+
+    def _on_step(self, value) -> None:
+        self._t = float(value)
+        self.update()
+
+    def _on_done(self) -> None:
+        self._t = 1.0
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        if self._t >= 1.0 or not self._old:
+            super().paintEvent(event)
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter.setFont(self.font())
+        color = self.palette().color(QPalette.ColorRole.WindowText)
+        metrics = self.fontMetrics()
+        rect = self.contentsRect()
+        painter.setClipRect(rect)
+        baseline = rect.top() + (rect.height() - metrics.height()) / 2 + metrics.ascent()
+        travel = metrics.height() * 0.62
+        shift = len(self._new) - len(self._old)
+
+        def draw(ch: str, x: float, dy: float, opacity: float) -> None:
+            if opacity <= 0.0:
+                return
+            faded = QColor(color)
+            faded.setAlphaF(color.alphaF() * min(1.0, opacity))
+            painter.setPen(faded)
+            painter.drawText(int(round(x)), int(round(baseline + dy)), ch)
+
+        t = self._t
+        for i, ch in enumerate(self._new):
+            x = rect.left() + metrics.horizontalAdvance(self._new[:i])
+            j = i - shift
+            before = self._old[j] if 0 <= j < len(self._old) else ""
+            if before == ch:
+                draw(ch, x, 0.0, 1.0)
+                continue
+            draw(ch, x, self._dir * (1.0 - t) * travel, t)               # arriving
+            if before:                                                    # leaving
+                draw(before, x, -self._dir * t * travel, 1.0 - t)
+        painter.end()
+
+
+def _direction(old: str, new: str) -> int:
+    """+1 when ``new`` reads as a bigger number than ``old``, else -1."""
+    try:
+        return 1 if _number(new) >= _number(old) else -1
+    except ValueError:
+        return 1
+
+
+def _number(text: str) -> float:
+    return float(re.sub(r"[^0-9.\-]", "", text))
 
 
 # --------------------------------------------------------------------------- #

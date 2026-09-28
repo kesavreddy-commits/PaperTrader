@@ -20,7 +20,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ.setdefault("PAPER_TRADER_HOME", tempfile.mkdtemp(prefix="pt_uitest_"))
 
 import numpy as np
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 app = QApplication.instance() or QApplication([])
@@ -341,7 +341,7 @@ def test_chart_controls_do_not_jump() -> None:
 
 
 def test_chart_chrome_switches() -> None:
-    """The line view is bare by default and the Theme menu toggles the rest."""
+    """The line view is bare by default and the Theme menu toggles axes and grid."""
     win = _window()
     chart = win._chart
     left = chart._plot.getAxis("left")
@@ -361,22 +361,21 @@ def test_chart_chrome_switches() -> None:
     win._chrome_actions["grid"].setChecked(True)
     app.processEvents()
     check("gridline switch is recorded", chart.chrome()["grid"])
-    win._chrome_actions["last_price"].setChecked(False)
-    app.processEvents()
-    check("last-price tag can be hidden", not chart._last_label.isVisible())
+    check("the boxed price tag is gone from the chart", not hasattr(chart, "_last_label"))
+    check("the Theme menu has no last-price switch", "last_price" not in win._chrome_actions)
+    check("the line still ends in its dot", chart._last_dot.isVisible() or not len(chart._xs))
 
     # …and the choices survive a restart.
     settings = win._store.load_settings()
     check("chart switches persist",
-          settings.get("chart_axes") is True and settings.get("chart_grid") is True
-          and settings.get("chart_last_price") is False)
+          settings.get("chart_axes") is True and settings.get("chart_grid") is True)
     win.close()
 
     reopened = _window()
     check("chart switches are restored",
-          reopened._chart.chrome() == {"axes": True, "grid": True, "last_price": False})
+          reopened._chart.chrome() == {"axes": True, "grid": True})
     # Put the defaults back so later checks see a clean slate.
-    for key, value in (("axes", False), ("grid", False), ("last_price", True)):
+    for key, value in (("axes", False), ("grid", False)):
         reopened._chrome_actions[key].setChecked(value)
     app.processEvents()
     reopened.close()
@@ -641,6 +640,188 @@ def test_watchlist_can_be_hidden_and_stays_hidden() -> None:
     again.close()
 
 
+def test_nav_menus_carry_no_arrow() -> None:
+    """The pull-downs are plain labels: no indicator arrow, no reserved room for one."""
+    from PyQt6.QtWidgets import QMenu
+
+    from paper_trader.ui.nav_bar import NavBar
+
+    theme.apply_theme(app, "dark")
+    nav = NavBar()
+    menu = nav.add_menu("Account", QMenu())
+    link = nav.add_action("Account", lambda: None)
+    nav.resize(1200, NavBar.HEIGHT)
+    nav.show()
+    app.processEvents()
+    check("a menu button is as wide as a plain link with the same label",
+          menu.sizeHint().width() == link.sizeHint().width())
+    check("the stylesheet draws no indicator image",
+          "menu-indicator" in theme.build_stylesheet("dark")
+          and "chevron-down" not in theme.build_stylesheet("dark"))
+    check("a menu that is closed is not marked open", not menu.property("open"))
+    menu.menu().aboutToShow.emit()
+    check("an open menu marks its button (the pill)", menu.property("open") is True)
+    menu.menu().aboutToHide.emit()
+    check("closing it clears the mark", menu.property("open") is False)
+    nav.close()
+
+
+def test_table_backgrounds_paint_under_the_stylesheet() -> None:
+    """Row shading and hover must show up despite the ``::item`` stylesheet rule.
+
+    Qt stops painting an item's background brush once the stylesheet styles
+    ``::item``; that hid the chain's in-the-money shading and every row hover.
+    """
+    from PyQt6.QtGui import QBrush, QColor
+    from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+
+    from paper_trader.ui.tables import style_table
+
+    theme.apply_theme(app, "dark")
+    t = QTableWidget(3, 2)
+    style_table(t)
+    for r in range(3):
+        for c in range(2):
+            item = QTableWidgetItem("x")
+            t.setItem(r, c, item)
+            if r == 1:
+                item.setBackground(QBrush(QColor("#ff00ff")))
+    t.resize(400, 250)
+    t.show()
+    app.processEvents()
+
+    def pixel(row: int) -> str:
+        img = t.grab().toImage()
+        return QColor(img.pixel(50, 36 + 44 * row + 8)).name()   # clear of the glyph
+
+    check("a shaded row shows its shading", pixel(1) == "#ff00ff")
+    check("an unshaded row stays on the page", pixel(0) == "#000000")
+    t.itemDelegate()._row = 2
+    t.viewport().update()
+    app.processEvents()
+    check("the hovered row lights up", pixel(2) == theme.color("hover"))
+    t.close()
+
+
+def test_the_chain_shows_its_money_shading_and_centres_on_it() -> None:
+    win = _window()
+    win._on_quote(_quote("AAPL", 100.0, 99.0))
+    win._set_market_mode("options")
+    for _ in range(3):
+        app.processEvents()
+    table = win._options_chain._table
+    from PyQt6.QtGui import QColor
+
+    itm = next(r for r in range(table.rowCount())
+               if table.item(r, 6) is not None and table.item(r, 6).text() == "ITM")
+    check("in-the-money rows carry a wash", table.item(itm, 0).background().style()
+          != Qt.BrushStyle.NoBrush)
+    atm = next(r for r in range(table.rowCount())
+               if table.item(r, 0).text().startswith("●"))
+    rect = table.visualItemRect(table.item(atm, 0))
+    view_h = table.viewport().height()
+    check("the at-the-money strike is fully on screen",
+          rect.top() >= 0 and rect.bottom() <= view_h)
+    check("and sits near the middle, not against an edge",
+          view_h * 0.25 <= rect.center().y() <= view_h * 0.75)
+    win.close()
+
+
+def test_signed_percent_keeps_its_direction() -> None:
+    """A move too small for two decimals still says which way it went."""
+    check("a small loss is never plus-signed", fmt_signed_pct(-0.0024) == "-0.002%")
+    check("a small gain keeps its plus", fmt_signed_pct(0.0031) == "+0.003%")
+    check("exact zero is plus zero", fmt_signed_pct(0.0) == "+0.00%")
+    check("ordinary moves are untouched",
+          fmt_signed_pct(1.234) == "+1.23%" and fmt_signed_pct(-1.234) == "-1.23%")
+
+
+def test_a_reused_cell_does_not_inherit_the_empty_state() -> None:
+    """The empty message is centred; the first real row must not stay centred."""
+    from PyQt6.QtCore import Qt as _Qt
+
+    from paper_trader.core.portfolio import PositionView
+
+    t = PositionsTable()
+    t.update_positions([])
+    check("the empty-state message is centred",
+          bool(t._table.item(0, 0).textAlignment() & _Qt.AlignmentFlag.AlignHCenter.value))
+    view = PositionView(symbol="AAPL", quantity=6, avg_cost=406.46, cost_basis=2438.76,
+                        price=407.0, priced=True, market_value=2442.0,
+                        unrealized_pl=3.24, unrealized_pl_pct=0.13,
+                        day_change=3.24, day_change_pct=0.13, weight=0.24)
+    t.update_positions([view])
+    align = t._table.item(0, 0).textAlignment()
+    check("the first real symbol is left-aligned again",
+          bool(align & _Qt.AlignmentFlag.AlignLeft.value)
+          and not align & _Qt.AlignmentFlag.AlignHCenter.value)
+
+
+def test_watchlist_footer_takes_you_to_search() -> None:
+    win = _window()
+    fired = []
+    win._watchlist.addRequested.connect(lambda: fired.append(True))
+    win._watchlist._add.click()
+    check("the footer row asks to add a symbol", fired == [True])
+    check("the old caption is gone", not hasattr(win._watchlist, "_hint"))
+    win.close()
+
+
+def test_scrubbing_rolls_the_hero_price() -> None:
+    """The hero's digits turn over as the crosshair moves, then settle on the price."""
+    from PyQt6.QtCore import QEventLoop, QTimer
+
+    win = _window()
+    win._on_quote(_quote("AAPL", 100.0, 98.0))
+    header = win._price_header
+    label = header._price_label
+    anim.ENABLED = True
+    try:
+        header.show_point(100.0)
+        header.show_point(103.5)
+        check("the label already reads the new price", label.text() == fmt_price(103.5))
+        check("and is mid-roll rather than snapped", label.is_rolling())
+        loop = QEventLoop()
+        QTimer.singleShot(60, loop.quit)
+        loop.exec()
+        mid = label.grab().toImage()
+        loop = QEventLoop()
+        QTimer.singleShot(450, loop.quit)
+        loop.exec()
+        check("the roll comes to rest", not label.is_rolling())
+        rest = label.grab().toImage()
+        check("mid-roll draws differently from the resting price", mid != rest)
+        header.clear_point()
+        check("leaving the chart rolls back to the live price",
+              label.text() == fmt_price(100.0))
+    finally:
+        anim.ENABLED = False
+    win.close()
+
+
+def test_rolling_label_only_turns_changed_digits() -> None:
+    from paper_trader.ui.anim import RollingLabel, _direction
+
+    check("a rise rolls up, a fall rolls down",
+          _direction("$100.00", "$100.05") == 1 and _direction("$100.05", "$99.99") == -1)
+    check("thousands separators do not confuse the direction",
+          _direction("$999.99", "$1,000.00") == 1)
+    label = RollingLabel("$402.90")
+    label.show()
+    app.processEvents()
+    anim.ENABLED = True
+    try:
+        label.roll_to("$402.90")
+        check("an unchanged price does not roll", not label.is_rolling())
+        label.roll_to("$402.95")
+        check("a changed price does", label.is_rolling())
+        label.setText("$1.00")
+        check("plain setText cancels a roll in flight", not label.is_rolling())
+    finally:
+        anim.ENABLED = False
+    label.close()
+
+
 def test_legacy_window_still_runs() -> None:
     """`run.py --old` keeps the previous interface working."""
     from paper_trader.ui_legacy.main_window import MainWindow as LegacyWindow
@@ -691,6 +872,14 @@ def main() -> int:
                test_multi_day_ranges_close_market_gaps,
                test_blotter_drops_columns_it_cannot_fit,
                test_watchlist_can_be_hidden_and_stays_hidden,
+               test_nav_menus_carry_no_arrow,
+               test_table_backgrounds_paint_under_the_stylesheet,
+               test_the_chain_shows_its_money_shading_and_centres_on_it,
+               test_signed_percent_keeps_its_direction,
+               test_a_reused_cell_does_not_inherit_the_empty_state,
+               test_watchlist_footer_takes_you_to_search,
+               test_scrubbing_rolls_the_hero_price,
+               test_rolling_label_only_turns_changed_digits,
                test_legacy_window_still_runs):
         fn()
     failed = [name for name, ok in _checks if not ok]

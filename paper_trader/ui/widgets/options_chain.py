@@ -148,6 +148,8 @@ class OptionsChainView(QWidget):
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
         super().resizeEvent(event)
         fit_columns(self._table, _DROP)
+        if self._pending_scroll is not None:
+            QTimer.singleShot(0, self._apply_scroll)
 
     def refresh_theme(self) -> None:
         """Repaint the row shading and header in the new palette."""
@@ -261,13 +263,30 @@ class OptionsChainView(QWidget):
 
     def _apply_scroll(self) -> None:
         row = self._pending_scroll
-        self._pending_scroll = None
         if row is None or not (0 <= row < self._table.rowCount()):
+            self._pending_scroll = None
             return
-        item = self._table.item(row, 0)
-        if item is not None:
-            self._table.scrollToItem(
-                item, QAbstractItemView.ScrollHint.PositionAtCenter)
+        # The chain is built while it is still the hidden page of the centre
+        # stack, when the viewport has no real height to centre in — the strike
+        # then lands on the bottom edge. Hold the request until it is on screen
+        # (showEvent / resizeEvent come back here).
+        if not self._table.isVisible() or self._table.viewport().height() < 60:
+            return
+        self._pending_scroll = None
+        # Centre the strike, but land the *top* edge on a row boundary: plain
+        # centring leaves a sliver of a row clipped at both ends, which reads
+        # as a rendering glitch. Rows clipped only at the bottom read as
+        # "more below".
+        row_h = self._table.verticalHeader().defaultSectionSize()
+        view_h = self._table.viewport().height()
+        above = max(0, round((view_h - row_h) / 2 / row_h))
+        bar = self._table.verticalScrollBar()
+        bar.setValue(min(bar.maximum(), max(0, row - above) * row_h))
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        super().showEvent(event)
+        if self._pending_scroll is not None:
+            QTimer.singleShot(0, self._apply_scroll)
 
     def _highlight_selected(self, chain) -> None:
         if self._selected_strike is None:

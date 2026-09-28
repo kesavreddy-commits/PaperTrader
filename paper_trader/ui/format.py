@@ -56,7 +56,16 @@ def fmt_pct(value: float | None, decimals: int = 2) -> str:
 def fmt_signed_pct(value: float | None, decimals: int = 2) -> str:
     if value is None:
         return "—"
+    raw = value
     value = _settle(value, decimals)
+    if value == 0 and raw != 0:
+        # A move too small to show still has a direction. Without this a
+        # -$1.20 loss on a $25k book read "(+0.00%)" beside its own dollars.
+        # Show one more digit so it reads as small, not as a sign on zero.
+        finer = _settle(raw, decimals + 1)
+        if finer != 0:
+            return f"{finer:+.{decimals + 1}f}%"
+        return f"{'-' if raw < 0 else '+'}{0:.{decimals}f}%"
     sign = "+" if value >= 0 else ""
     return f"{sign}{value:.{decimals}f}%"
 

@@ -79,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
+    if not args.old:
+        from .ui import icons
+
+        app.setWindowIcon(icons.app_icon())
     # Fusion gives our stylesheet a consistent base across platforms.
     app.setStyle("Fusion")
 

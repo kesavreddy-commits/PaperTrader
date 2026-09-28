@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QStyle,
     QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
 )
 
@@ -144,3 +145,13 @@ class RowHoverDelegate(QStyledItemDelegate):
                 and not option.state & QStyle.StateFlag.State_Selected
                 and self._table.columnSpan(index.row(), 0) == 1):
             option.backgroundBrush = QBrush(QColor(theme.color("hover")))
+
+    def paint(self, painter, option, index) -> None:
+        # The app stylesheet styles ``::item`` (padding, no border), and once it
+        # does Qt stops painting an item's background brush at all — which hid
+        # the chain's in-the-money shading and this hover. Fill it ourselves.
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        if opt.backgroundBrush.style() != Qt.BrushStyle.NoBrush:
+            painter.fillRect(option.rect, opt.backgroundBrush)
+        super().paint(painter, option, index)

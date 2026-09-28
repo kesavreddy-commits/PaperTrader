@@ -413,21 +413,22 @@ QPushButton#Outline[accent="down"] { border-color: $red; color: $red; }
 QPushButton#Outline[accent="down"]:hover { background-color: $red_wash; }
 QPushButton#Outline:disabled { border-color: $border_strong; color: $text_faint; }
 
-/* Top-nav text links. */
-QPushButton#NavLink, QToolButton#NavLink {
-    background: transparent; border: none; color: $text;
-    padding: 6px 10px; font-size: 14px; font-weight: 700;
+/* Top-nav controls: plain bold labels, links and pull-downs alike. The menus
+   carry no arrow; a soft pill on hover — and while the menu is open — is what
+   says "this does something", which keeps the row even and uncluttered. */
+QPushButton#NavLink, QPushButton#NavMenu, QToolButton#NavLink {
+    background: transparent; border: none; border-radius: 8px; color: $text;
+    padding: 7px 12px; font-size: 14px; font-weight: 700;
 }
-QPushButton#NavLink:hover, QToolButton#NavLink:hover { color: $green; }
-QToolButton#NavLink::menu-indicator { image: none; width: 0; }
-QPushButton#NavMenu {
-    background: transparent; border: none; color: $text;
-    padding: 6px 24px 6px 10px; font-size: 14px; font-weight: 700;
+QPushButton#NavLink:hover, QPushButton#NavMenu:hover, QToolButton#NavLink:hover {
+    background-color: $selection;
 }
-QPushButton#NavMenu:hover { color: $green; }
-QPushButton#NavMenu::menu-indicator {
-    image: url($chevron_down); subcontrol-origin: padding;
-    subcontrol-position: center right; width: 11px; height: 11px; right: 8px;
+QPushButton#NavLink:pressed, QPushButton#NavMenu:pressed,
+QPushButton#NavMenu[open="true"], QToolButton#NavLink:pressed {
+    background-color: $menu_hover;
+}
+QPushButton#NavMenu::menu-indicator, QToolButton#NavLink::menu-indicator {
+    image: none; width: 0; height: 0;
 }
 
 /* Chart range tabs: bold, tracked caps with a short rule under the active one,
@@ -472,6 +473,13 @@ QPushButton#Chip {
 }
 QPushButton#Chip:hover { border-color: $text_muted; }
 QPushButton#Chip:checked { background-color: $text; color: $bg; border-color: $text; }
+
+/* The watchlist's footer row. */
+QPushButton#AddRow {
+    background: transparent; border: none; border-radius: 8px; color: $text_muted;
+    padding: 9px 10px; font-size: 13px; font-weight: 600; text-align: left;
+}
+QPushButton#AddRow:hover { background-color: $selection; color: $text; }
 
 QPushButton#Ghost {
     background: transparent; border: 1px solid $input_border; color: $text;
@@ -941,6 +949,4 @@ def chart_colors() -> dict[str, str]:
         "baseline": p["baseline"],
         "crosshair": p.get("crosshair", p["text_muted"]),
         "time_text": p.get("time_text", p["text_faint"]),
-        "tag_fill": p.get("card", p["chart_bg"]),
-        "tag_border": p.get("card_border", p["border"]),
     }
