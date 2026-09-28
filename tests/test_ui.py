@@ -348,6 +348,40 @@ def test_chart_chrome_switches() -> None:
     reopened.close()
 
 
+def test_buy_button_keeps_its_fill() -> None:
+    """The order card's pill must paint its own fill inside the scroll column.
+
+    A selector-less stylesheet on the column's viewport once cascaded
+    `background: transparent` to every descendant, leaving the enabled pill as
+    near-black text on black. Checked on rendered pixels, not stylesheet text.
+    """
+    from PyQt6.QtGui import QColor
+
+    win = _window()
+    win._on_quote(_quote("AAPL", 100.0, 99.0))
+    app.processEvents()
+    panel = win._trade_panel
+    panel._amount.setText("3")
+    app.processEvents()
+    button = panel._submit
+    check("buy pill is enabled with a quantity", button.isEnabled())
+    image = button.grab().toImage()
+    dpr = image.devicePixelRatio()
+    # Sample inside the pill but clear of the label.
+    pixel = image.pixelColor(int(button.width() * 0.12 * dpr), int(button.height() * 0.5 * dpr))
+    want = QColor(theme.PALETTES["dark"]["buy"])
+    close = (abs(pixel.red() - want.red()) + abs(pixel.green() - want.green())
+             + abs(pixel.blue() - want.blue())) < 40
+    check(f"buy pill paints its green fill (got {pixel.name()})", close)
+    panel._amount.setText("")
+    app.processEvents()
+    image = button.grab().toImage()
+    pixel = image.pixelColor(int(button.width() * 0.12 * dpr), int(button.height() * 0.5 * dpr))
+    check(f"disabled pill still has a visible fill (got {pixel.name()})",
+          pixel.name() != "#000000")
+    win.close()
+
+
 def test_legacy_window_still_runs() -> None:
     """`run.py --old` keeps the previous interface working."""
     from paper_trader.ui_legacy.main_window import MainWindow as LegacyWindow
@@ -386,6 +420,7 @@ def main() -> int:
                test_splitters_are_draggable_and_bounded,
                test_chart_controls_do_not_jump,
                test_chart_chrome_switches,
+               test_buy_button_keeps_its_fill,
                test_legacy_window_still_runs):
         fn()
     failed = [name for name, ok in _checks if not ok]

@@ -334,7 +334,10 @@ class MainWindow(QMainWindow):
         right.setWidgetResizable(True)
         right.setFrameShape(QFrame.Shape.NoFrame)
         right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        right.viewport().setStyleSheet("background: transparent;")
+        # Scoped by name: a selector-less sheet here would cascade to every
+        # widget in the column and strip the Buy pill's fill.
+        right.viewport().setObjectName("CardViewport")
+        right.viewport().setStyleSheet("#CardViewport { background: transparent; }")
 
         # The three columns are draggable: the rail and the card have sensible
         # minimums (and the card a maximum), and the chart absorbs the slack.
