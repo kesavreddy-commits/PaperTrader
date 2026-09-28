@@ -9,7 +9,7 @@ which the owner loads into the option ticket. The chain math is entirely local
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -152,9 +152,8 @@ class OptionsChainView(QWidget):
             item = self._exp_row.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
-        today = datetime.now(timezone.utc).date()
         for e in exps:
-            dte = max(0, (e - today).days)
+            dte = days_to_expiry(e)
             btn = QPushButton(f"{e.strftime('%b %d')}\n{dte}d")
             btn.setObjectName("RangeTab"); btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
