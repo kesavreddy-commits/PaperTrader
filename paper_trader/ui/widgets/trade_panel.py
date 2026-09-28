@@ -4,9 +4,9 @@ Layout follows the reference: a lifted card whose header reads "Buy AAPL" /
 "Sell AAPL" over a full-width rule, with a chevron for the order type; then a
 stack of label/control rows — order type, shares vs dollars, the amount,
 market price, commissions — an inset rule, the bold estimated cost, the
-buying-power note and a full-width pill for the action. Like the reference,
-the card's accent (tabs and pill) follows the stock's day: green when it is up,
-orange when it is down.
+buying-power note and a full-width pill for the action. Buy is always green
+and Sell always red (tabs and pill alike), rather than the reference's tint by
+the stock's day.
 
 This is a view plus light client-side validation; the authoritative checks and
 execution happen in the broker/engine via the emitted :class:`OrderTicket`.
@@ -69,7 +69,6 @@ class TradePanel(QFrame):
         self._mode = "SHARES"
         self._ext_supported = False   # only the Alpaca account can trade extended hours
         self._session = ""            # live market session ("PRE"/"POST"/…)
-        self._accent = "up"
         self._build()
         self._recompute()
 
@@ -240,6 +239,7 @@ class TradePanel(QFrame):
         self._submit.setCursor(Qt.CursorShape.PointingHandCursor)
         self._submit.clicked.connect(self._submit_order)
         body.addWidget(self._submit)
+        self._paint_side()
 
         self._owned_label = QLabel("")
         self._owned_label.setObjectName("CardNote")
@@ -268,11 +268,15 @@ class TradePanel(QFrame):
         self._owned = owned_shares
         self._recompute()
 
-    def set_accent(self, name: str) -> None:
-        """Green on an up day, orange on a down one — tabs and pill alike."""
-        self._accent = name
-        for widget in (self._submit, self._buy_tab, self._sell_tab):
-            theme.set_accent(widget, name)
+    def _paint_side(self) -> None:
+        """Buy reads green and Sell red — the tabs and the pill alike.
+
+        The user's call: the reference tints them by the stock's day, which
+        turned the Buy pill orange whenever the stock was down.
+        """
+        theme.set_accent(self._buy_tab, "up")
+        theme.set_accent(self._sell_tab, "down")
+        theme.set_accent(self._submit, "up" if self._side == "BUY" else "down")
 
     def refresh_theme(self) -> None:
         self._chevron.setIcon(icons.icon("chevron_down", theme.color("text"), 16))
@@ -337,6 +341,7 @@ class TradePanel(QFrame):
         self._side = side
         self._buy_tab.setChecked(side == "BUY")
         self._sell_tab.setChecked(side == "SELL")
+        self._paint_side()
         self._recompute()
 
     def _choose_type(self, order_type: str) -> None:

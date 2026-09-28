@@ -58,14 +58,18 @@ Alpaca APIs.
   search, a watchlist of live **sparklines**, the price hero, a full-height
   **line and candlestick** chart with a crosshair, key statistics, the Buy/Sell
   order card, and positions / history / open-orders tables. Dark **and** light
-  themes. Everything is a **square-cornered box** — cards, fields, buttons, chips,
-  menus, toasts — set in two bundled open-source faces: **Inter** (in its Display
-  cut) for the big figures and headings, **Geist** for the small print, both with
-  tabular figures so ticking prices stay put.
+  themes. The look is **boxy**: cards, buttons, chips and toasts are square
+  boxes, while fields, every dropdown and menu, and the segmented toggles carry a
+  small, soft radius. **Buy is always green and Sell always red.** It's set in two
+  bundled open-source faces: **Inter** (in its Display cut) for the big figures
+  and headings, **Geist** for the small print, both with tabular figures so
+  ticking prices stay put.
 - **A chart that reads like the reference** — scrub it and the hero's price
   **rolls** digit by digit to the value under the crosshair (up on a rise, down
   on a fall) while the change follows; the change line follows the range (*Today*, *Past
-  week* … *All time*) and the whole page tints green or orange with it. The 1D
+  week* … *All time*) and the chart, range tabs and pills tint green or orange
+  with it (the order card keeps Buy green and Sell red). The candle view's
+  O/H/L/C readout sits centred over the plot. The 1D
   chart draws pre-market, the regular session and after-hours in their own
   colours and runs out to the end of the trading day; multi-day ranges take out
   nights, weekends and holidays, so sessions sit side by side instead of being

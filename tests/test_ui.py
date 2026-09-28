@@ -11,6 +11,7 @@ provider and the local simulator, so it never touches the network.
 """
 
 import os
+import re
 import sys
 import tempfile
 from datetime import date, datetime, timedelta, timezone
@@ -464,7 +465,7 @@ def test_accent_follows_the_displayed_change() -> None:
 
     win = _window()
     win._stop_feed()   # keep the demo feed from replacing the hand-fed data
-    pill = win._trade_panel._submit
+    pill = win._options_cta      # the tickets' Buy/Sell colours follow the side instead
     win.set_active_symbol("AAPL")
     win._on_quote(_quote("AAPL", 95.0, 100.0))
     check("a down day turns the accent orange",
@@ -841,8 +842,20 @@ def test_boxy_look_and_bundled_faces() -> None:
     win = _window()
     check("Geist is the application (small-print) face", app.font().family() == "Geist")
     check("Inter is the display face", theme.display_font_family() == "Inter")
-    radii = re.findall(r"border-radius:\s*([^;]+);", theme.build_stylesheet("dark"))
-    check("every corner in the stylesheet is square", radii and all(r == "0" for r in radii))
+    qss = re.sub(r"/\*.*?\*/", "", theme.build_stylesheet("dark"), flags=re.S)
+    radius = {sel.strip(): m.group(1)
+              for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", qss)
+              if (m := re.search(r"border-radius:\s*(\d+)", body))}
+    check("nothing is pill-shaped", radius and max(int(r) for r in radius.values()) <= 8)
+    check("cards, the order pills, chips and toasts are square boxes",
+          all(radius[k] == "0" for k in ("QFrame#Card", "QPushButton#BuyButton",
+                                          "QPushButton#Outline", "QPushButton#Chip",
+                                          "QFrame#Toast")))
+    check("fields, dropdowns, menus and toggles are softly rounded",
+          all(0 < int(radius[k]) <= 8 for k in (
+              "QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox", "QComboBox QAbstractItemView",
+              "QMenu", "QFrame#SegmentGroup", "QPushButton#Segment",
+              "QListWidget#SearchResults")))
     price = win._price_header._price_label.font()
     check("the hero price is set in Inter", price.family() == "Inter")
     check("in its Display cut", QFont.Tag("opsz") in price.variableAxisTags()
@@ -867,6 +880,84 @@ def test_boxy_look_and_bundled_faces() -> None:
           app.font().family() == theme.system_font_family())
     check("and its rounded shapes", "border-radius: 24px" in theme.build_stylesheet("dark", True))
     theme.apply_theme(app, "dark")
+
+
+def test_buy_is_green_and_sell_red_whatever_the_day() -> None:
+    """The tickets' Buy/Sell colours follow the side, not the stock's day."""
+    win = _window()
+    win._stop_feed()
+    win.set_active_symbol("AAPL")
+    panel = win._trade_panel
+    win._on_quote(_quote("AAPL", 95.0, 100.0))          # a down day
+    check("the page still tints by the day", win._options_cta.property("accent") == "down")
+    check("but Buy stays green on a down day",
+          panel._submit.property("accent") == "up" and panel._buy_tab.property("accent") == "up")
+    panel._set_side("SELL")
+    win._on_quote(_quote("AAPL", 105.0, 100.0))         # an up day
+    check("and Sell is red on an up day",
+          panel._submit.property("accent") == "down" and panel._sell_tab.property("accent") == "down")
+    ticket = win._option_ticket
+    ticket._set_side("SELL")
+    check("the option ticket's Sell is red", ticket._submit.property("accent") == "down")
+    ticket._set_side("BUY")
+    check("and its Buy green", ticket._submit.property("accent") == "up")
+    win.close()
+
+
+def test_soft_controls_sit_centred() -> None:
+    """Toggle highlights are centred in their tracks; the candle readout is centred
+    over the plot; the status reads as plain text; every dropdown window is round."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QComboBox, QMenu, QStyledItemDelegate
+
+    from paper_trader.ui.widgets.segments import segment_group
+
+    theme.apply_theme(app, "dark")
+    track, buttons = segment_group(("Line", "Candles"), checked=1)
+    track.show()
+    app.processEvents()
+    first, last = buttons[0].geometry(), buttons[-1].geometry()
+    check("the highlight is centred top to bottom",
+          first.top() == track.height() - 1 - first.bottom())
+    check("and side to side", first.left() == track.width() - 1 - last.right())
+    track.close()
+
+    status = [r for r in re.findall(r"QLabel#StatusChip \{([^}]*)\}", theme.build_stylesheet("dark"))]
+    check("the account/data status has no box", status and "border: none" in status[0])
+
+    combo = QComboBox()
+    combo.addItems(["Shares", "Dollars"])
+    combo.show()
+    app.processEvents()
+    check("a select's rows take the stylesheet", isinstance(combo.itemDelegate(), QStyledItemDelegate))
+    combo.showPopup()
+    app.processEvents()
+    popup = combo.view().window()
+    check("its open list is a translucent (round-cornered) window",
+          popup.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+          and popup.grab().toImage().pixelColor(0, 0).alpha() == 0)
+    combo.hidePopup()
+    combo.close()
+    menu = QMenu()
+    menu.addAction("Market order")
+    menu.ensurePolished()
+    check("menus are translucent too", menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+
+    win = _window()
+    chart = win._chart
+    _q, candles = SyntheticProvider().fetch_chart("AAPL", "1D")
+    chart.set_candles("AAPL", "1D", candles)
+    chart._on_mode_clicked("candles")
+    app.processEvents()
+    vb = chart._plot.getViewBox()
+    target = candles[len(candles) // 2]
+    chart._on_mouse_moved(vb.mapViewToScene(QPointF(target.epoch, target.close)))
+    app.processEvents()
+    area = chart._plot.mapFromScene(vb.sceneBoundingRect()).boundingRect()
+    label = chart._hover_label.geometry()
+    check("the candle readout is centred over the plot",
+          chart._hover_label.isVisible() and abs(label.center().x() - area.center().x()) <= 1)
+    win.close()
 
 
 def test_legacy_window_still_runs() -> None:
@@ -928,6 +1019,8 @@ def main() -> int:
                test_scrubbing_rolls_the_hero_price,
                test_rolling_label_only_turns_changed_digits,
                test_boxy_look_and_bundled_faces,
+               test_buy_is_green_and_sell_red_whatever_the_day,
+               test_soft_controls_sit_centred,
                test_legacy_window_still_runs):
         fn()
     failed = [name for name, ok in _checks if not ok]

@@ -288,11 +288,13 @@ def tabular(font):
 # --------------------------------------------------------------------------- #
 # Stylesheet
 # --------------------------------------------------------------------------- #
-# Control heights are fixed in code so rows of buttons line up. Every corner is
-# square (the user prefers a boxy look), so no radius has to track a height.
+# Control heights are fixed in code so rows of buttons line up. Boxes are square
+# (the user prefers a boxy look); fields, dropdowns and toggles carry a small
+# radius, well under half their height, so none of them turns into a pill.
 PILL_HEIGHT = 44
 CHIP_HEIGHT = 30
 SEGMENT_TRACK_HEIGHT = 34
+SEGMENT_INSET = 3          # track border to highlight, all round
 
 _QSS = Template(
     """
@@ -375,18 +377,21 @@ QLabel#CardNote { color: $text_muted; font-size: 12px; }
 QLabel#Body { color: $text_muted; font-size: 12px; }
 QLabel#StatTitle { color: $text_muted; font-size: 12px; }
 QLabel#StatValue { color: $text; font-size: 14px; font-weight: 600; }
+/* The account / data-source readout: plain text at the end of the nav row. */
 QLabel#StatusChip {
     color: $text_muted; font-size: 12px; font-weight: 500;
-    border: 1px solid $border_strong; border-radius: 0; padding: 4px 11px;
+    border: none; padding: 0 0 0 10px;
 }
 QLabel#ToastText { font-size: 13px; font-weight: 600; }
 QLabel#Hint { color: $red; font-size: 12px; }
 
 /* ------------------------------------------------------------------ fields */
+/* Fields, every dropdown (selects, menus, search results) and the segmented
+   toggles are the soft spot in the boxy look: square-ish with a small radius. */
 QLineEdit, QComboBox, QDoubleSpinBox, QSpinBox {
     background-color: $input_bg;
     border: 1px solid $input_border;
-    border-radius: 0;
+    border-radius: 6px;
     padding: 7px 10px;
     color: $text;
     font-size: 13px;
@@ -397,22 +402,35 @@ QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus {
     border: 1px solid $text_muted;
 }
 QLineEdit:disabled, QComboBox:disabled { color: $text_faint; border-color: $border; }
-QComboBox { padding-right: 28px; }
+/* combobox-popup: 0 opens a plain list under the field, rather than Fusion's
+   menu-style panel, which paints its own square backing behind the list. */
+QComboBox {
+    padding-right: 28px; combobox-popup: 0;
+    selection-background-color: $menu_hover; selection-color: $text;
+}
 QComboBox::drop-down {
     subcontrol-origin: padding; subcontrol-position: center right;
     width: 26px; border: none; background: transparent;
 }
 QComboBox::down-arrow { image: url($select_arrows); width: 12px; height: 12px; }
 QComboBox::down-arrow:disabled { image: url($select_arrows_disabled); }
+/* The open list: a rounded card of rounded rows. Its window is made
+   translucent (see _SoftDropdownStyle) so the corners really are round. */
 QComboBox QAbstractItemView {
     background-color: $card;
     border: 1px solid $card_border;
-    border-radius: 0;
+    border-radius: 8px;
     padding: 4px;
+    font-size: 13px;
     selection-background-color: $menu_hover;
     selection-color: $text;
     outline: 0;
 }
+QComboBox QAbstractItemView::item {
+    min-height: 30px; padding: 0 8px; border: none; border-radius: 5px; color: $text;
+}
+QComboBox QAbstractItemView::item:hover,
+QComboBox QAbstractItemView::item:selected { background-color: $menu_hover; color: $text; }
 QLineEdit#SearchBox {
     background-color: $field_bg;
     border: 1px solid $border;
@@ -498,15 +516,17 @@ QPushButton#RangeTab[accent="down"]:hover { color: $red; }
 QPushButton#RangeTab:checked { color: $text; border-bottom: 2px solid $text; }
 
 /* Small segmented toggles (Stock/Options, Line/Candles, Calls/Puts). */
+/* Heights are set in code (segments.py) so the highlight sits dead centre in
+   its track; the radii are concentric (track = segment + inset). */
 QPushButton#Segment {
-    background: transparent; border: none; border-radius: 0;
-    padding: 0 13px; min-height: 28px; max-height: 28px;
+    background: transparent; border: none; border-radius: 5px;
+    padding: 0 13px;
     color: $text_muted; font-size: 12px; font-weight: 600;
 }
 QPushButton#Segment:hover { color: $text; }
 QPushButton#Segment:checked { background-color: $selection; color: $text; }
 QFrame#SegmentGroup {
-    background-color: transparent; border: 1px solid $border_strong; border-radius: 0;
+    background-color: transparent; border: 1px solid $border; border-radius: 8px;
 }
 
 /* The card's header tabs (Buy AAPL / Sell AAPL). */
@@ -537,7 +557,7 @@ QPushButton#AddRow:hover { background-color: $selection; color: $text; }
 
 QPushButton#Ghost {
     background: transparent; border: 1px solid $input_border; color: $text;
-    border-radius: 0; padding: 0 9px; font-size: 12px; font-weight: 600;
+    border-radius: 6px; padding: 0 9px; font-size: 12px; font-weight: 600;
 }
 QPushButton#Ghost:hover { background-color: $menu_hover; }
 QPushButton#Ghost:disabled { color: $text_faint; border-color: $border; }
@@ -545,7 +565,7 @@ QPushButton#Ghost:disabled { color: $text_faint; border-color: $border; }
 /* Contracts +/- stepper (option ticket). */
 QPushButton#Stepper {
     background-color: $input_bg; border: 1px solid $input_border;
-    border-radius: 0; padding: 0;
+    border-radius: 6px; padding: 0;
 }
 QPushButton#Stepper:hover { background-color: $menu_hover; }
 QPushButton#Stepper:disabled { border-color: $border; }
@@ -612,6 +632,7 @@ QListWidget::item { padding: 8px 10px; border-radius: 0; }
 QListWidget::item:selected { background-color: $menu_hover; color: $text; }
 QListWidget::item:hover { background-color: $menu_hover; }
 QListView#Watchlist { background: transparent; border: none; padding: 0; }
+QListWidget#SearchResults { border-radius: 8px; }
 
 /* -------------------------------------------------------------- scrollbars */
 QScrollBar:vertical { background: transparent; width: 8px; margin: 2px 1px; }
@@ -626,12 +647,14 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 /* ------------------------------------------------------------------- menus */
 QMenuBar { background-color: $bg; color: $text; }
 QMenuBar::item { background: transparent; padding: 6px 10px; }
-QMenuBar::item:selected { background: $selection; border-radius: 0; }
+QMenuBar::item:selected { background: $selection; border-radius: 4px; }
+/* Menus are dropdowns too: a rounded card of rounded rows (translucent window,
+   see _SoftDropdownStyle). */
 QMenu {
     background-color: $card; border: 1px solid $card_border;
-    border-radius: 0; padding: 6px;
+    border-radius: 8px; padding: 5px;
 }
-QMenu::item { padding: 7px 28px 7px 30px; border-radius: 0; color: $text; }
+QMenu::item { padding: 7px 28px 7px 30px; border-radius: 5px; color: $text; }
 QMenu::item:selected { background-color: $menu_hover; }
 QMenu::item:disabled { color: $text_faint; }
 QMenu::indicator { width: 14px; height: 14px; left: 9px; }
@@ -1012,6 +1035,47 @@ def display_font_family() -> str:
     return _bundled_families().get("display") or ui_font_family()
 
 
+# --------------------------------------------------------------------------- #
+# Dropdown windows
+# --------------------------------------------------------------------------- #
+_soft_style = None
+
+
+def _soft_dropdown_style():
+    """Fusion, plus what the stylesheet can't do for dropdowns on its own.
+
+    A menu or a select's open list is a top-level window, so the stylesheet's
+    rounded corners only show once that window is frameless and translucent —
+    otherwise its square backing shows behind the curve. And a select's rows only
+    take the stylesheet's ``::item`` rules through a ``QStyledItemDelegate``;
+    Qt's default delegate paints the raw palette highlight instead. Both are
+    applied as each widget is polished, so every dropdown — the order card's
+    selects, context menus, the nav menus, Qt's own field menus — gets them
+    without per-widget code. The classic look is left as it was.
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QPalette
+    from PyQt6.QtWidgets import QComboBox, QMenu, QProxyStyle, QStyledItemDelegate, QWidget
+
+    class _SoftDropdownStyle(QProxyStyle):
+        def polish(self, target):
+            if isinstance(target, QPalette):
+                return super().polish(target)
+            super().polish(target)
+            if _legacy or not isinstance(target, QWidget):
+                return None
+            if isinstance(target, QComboBox):
+                if not isinstance(target.itemDelegate(), QStyledItemDelegate):
+                    target.setItemDelegate(QStyledItemDelegate(target))
+            elif ((isinstance(target, QMenu) or target.inherits("QComboBoxPrivateContainer"))
+                  and not target.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)):
+                target.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+                target.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            return None
+
+    return _SoftDropdownStyle("Fusion")
+
+
 def apply_theme(app, name: str, legacy: bool = False) -> None:
     """Set the active palette and apply the stylesheet to the whole app.
 
@@ -1019,12 +1083,15 @@ def apply_theme(app, name: str, legacy: bool = False) -> None:
     both the palette every widget reads from and the stylesheet, so shared
     widgets follow the legacy window rather than mixing the two.
     """
-    global _active_name, _active, _legacy
+    global _active_name, _active, _legacy, _soft_style
     if name not in PALETTES:
         name = "dark"
     _active_name = name
     _legacy = legacy
     _active = (LEGACY_PALETTES if legacy else PALETTES)[name]
+    if _soft_style is None:          # once: Fusion, with rounded dropdown windows
+        _soft_style = _soft_dropdown_style()
+        app.setStyle(_soft_style)
     font = app.font()
     font.setFamily(ui_font_family())
     app.setFont(font)

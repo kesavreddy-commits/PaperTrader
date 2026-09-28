@@ -879,13 +879,12 @@ class MainWindow(QMainWindow):
             self._sync_accent(quote.price - reference)
 
     def _sync_accent(self, change: float | None) -> None:
-        """Tint the card, its pills and the range tabs by the displayed change."""
+        """Tint the chart, the range tabs and the pills under the card by the
+        displayed change. The tickets' Buy/Sell colours follow the side instead."""
         name = theme.accent_name(change)
         if name == self._accent:
             return
         self._accent = name
-        self._trade_panel.set_accent(name)
-        self._option_ticket.set_accent(name)
         self._chart.set_accent(name)
         for pill in (self._options_cta, self._watch_cta):
             theme.set_accent(pill, name)

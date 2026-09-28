@@ -1071,9 +1071,11 @@ class ChartWidget(QWidget):
                          f"<span style='color:{text}'>{fmt_compact(candle.volume)}</span>")
             self._hover_label.setText(html)
             self._hover_label.adjustSize()
-            # Inside the plotting area, clear of the price axis.
-            corner = self._plot.mapFromScene(vb.sceneBoundingRect().topLeft())
-            self._hover_label.move(corner.x() + 6, corner.y() + 4)
+            # Centred across the top of the plotting area (clear of the price
+            # axis); a readout wider than the plot starts at its left edge.
+            area = self._plot.mapFromScene(vb.sceneBoundingRect()).boundingRect()
+            left = area.center().x() - self._hover_label.width() // 2
+            self._hover_label.move(max(area.left() + 6, left), area.top() + 4)
             self._hover_label.show()
             self._hover_label.raise_()
 

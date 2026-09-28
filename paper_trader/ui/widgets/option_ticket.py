@@ -5,6 +5,7 @@ Sell header tabs, the contract as the card's title with its moneyness and days
 to expiry, a contracts stepper, the live bid/ask/mark and Greeks, then the bold
 estimated cost/credit with the collateral note for short sales, and a pill whose
 label says whether you are opening or closing (Buy to Open, Sell to Close, …).
+Buy is always green and Sell always red, as on the stock ticket.
 It's a view plus light validation; the authoritative checks and the fill happen
 in the engine via the emitted :class:`OptionOrderTicket`.
 """
@@ -191,6 +192,7 @@ class OptionTicket(QFrame):
         self._submit.setCursor(Qt.CursorShape.PointingHandCursor)
         self._submit.clicked.connect(self._submit_order)
         body.addWidget(self._submit)
+        self._paint_side()
 
         self._owned_label = QLabel("")
         self._owned_label.setObjectName("CardNote")
@@ -225,9 +227,11 @@ class OptionTicket(QFrame):
         self._position = position_qty
         self._render()
 
-    def set_accent(self, name: str) -> None:
-        for widget in (self._submit, self._buy_toggle, self._sell_toggle):
-            theme.set_accent(widget, name)
+    def _paint_side(self) -> None:
+        """Buy reads green and Sell red — the tabs and the pill alike."""
+        theme.set_accent(self._buy_toggle, "up")
+        theme.set_accent(self._sell_toggle, "down")
+        theme.set_accent(self._submit, "up" if self._side == "BUY" else "down")
 
     def refresh_theme(self) -> None:
         self._minus.setIcon(icons.icon("minus", theme.color("text"), 14))
@@ -291,6 +295,7 @@ class OptionTicket(QFrame):
         self._side = side
         self._buy_toggle.setChecked(side == "BUY")
         self._sell_toggle.setChecked(side == "SELL")
+        self._paint_side()
         self._render()
 
     def _fill_price(self) -> float | None:

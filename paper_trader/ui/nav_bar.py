@@ -9,7 +9,7 @@ network work off this widget.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PyQt6.QtWidgets import (
     QFrame,
@@ -306,7 +306,7 @@ class _ResultDelegate(QStyledItemDelegate):
         if option.state & (QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_MouseOver):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(theme.color("menu_hover")))
-            painter.drawRect(rect)
+            painter.drawRoundedRect(QRectF(rect), 5, 5)    # a dropdown row: soft, like menus
 
         symbol = index.data(_SYMBOL) or ""
         name = index.data(_NAME) or ""
