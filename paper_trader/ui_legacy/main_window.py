@@ -64,11 +64,11 @@ from ..ui.dialogs import (
     OpenSessionDialog,
 )
 from ..ui.format import fmt_shares
-from ..ui.widgets.history_table import HistoryTable, OrdersTable
-from ..ui.widgets.option_ticket import OptionOrderTicket, OptionTicket
-from ..ui.widgets.options_chain import OptionsChainView
-from ..ui.widgets.options_positions import OptionsPositionsTable
-from ..ui.widgets.positions_table import PositionsTable
+from .widgets.history_table import HistoryTable, OrdersTable
+from .widgets.option_ticket import OptionOrderTicket, OptionTicket
+from .widgets.options_chain import OptionsChainView
+from .widgets.options_positions import OptionsPositionsTable
+from .widgets.positions_table import PositionsTable
 from .widgets.chart import ChartWidget
 from .widgets.portfolio_bar import PortfolioBar
 from .widgets.price_header import PriceHeader
