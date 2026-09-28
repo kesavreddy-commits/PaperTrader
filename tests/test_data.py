@@ -57,6 +57,48 @@ def test_synthetic_is_deterministic_but_live() -> None:
     check("live level drifts only slightly", abs(a[-1].close / b[-1].close - 1) < 0.01)
 
 
+def test_synthetic_ranges_span_their_labels() -> None:
+    """Demo bars sit on exchange hours and cover the span each range names —
+    "Past week" is five trading days, not a day and a half of round-the-clock
+    bars — at any time of day, weekends included."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    p = SyntheticProvider()
+    for label, when in (("Tue 11:15", datetime(2026, 9, 29, 11, 15, tzinfo=et)),
+                        ("Mon 07:00 (pre-market)", datetime(2026, 9, 28, 7, 0, tzinfo=et)),
+                        ("Sat noon", datetime(2026, 9, 26, 12, 0, tzinfo=et))):
+        now = when.timestamp()
+        local = {rk: [datetime.fromtimestamp(t, et) for t in p._timeline(rk, now)]
+                 for rk in ("1D", "1W", "1M", "3M", "1Y")}
+        check(f"{label}: no bar in the future", all(
+            t.timestamp() <= now for bars in local.values() for t in bars))
+        check(f"{label}: bars on weekdays only", all(
+            t.weekday() < 5 for bars in local.values() for t in bars))
+        day = local["1D"]
+        check(f"{label}: 1D is one session, 4:00-20:00 ET",
+              len({t.date() for t in day}) == 1
+              and day[0].hour == 4 and day[-1].hour < 20)
+        week = local["1W"]
+        check(f"{label}: 1W is five trading days of regular hours",
+              len({t.date() for t in week}) == 5
+              and all((9, 30) <= (t.hour, t.minute) < (16, 0) for t in week))
+        span = lambda bars: (bars[-1] - bars[0]).days
+        check(f"{label}: 1M spans about a month", 26 <= span(local["1M"]) <= 31)
+        check(f"{label}: 3M spans about three months", 85 <= span(local["3M"]) <= 92)
+        check(f"{label}: 1Y spans about a year", 360 <= span(local["1Y"]) <= 366)
+    check("sessions by the Eastern clock",
+          [p._market_state(datetime(2026, 9, 28, h, m, tzinfo=et).timestamp())
+           for h, m in ((3, 0), (7, 0), (10, 0), (17, 0), (21, 0))]
+          == ["CLOSED", "PRE", "REGULAR", "POST", "CLOSED"])
+    q, day = p.fetch_chart("AAPL", "1D")
+    q_month, _ = p.fetch_chart("AAPL", "1M")
+    check("key stats describe the day whatever the chart shows",
+          (q.day_high, q.day_low, q.day_open) == (q_month.day_high, q_month.day_low, q_month.day_open))
+    check("the day opens near yesterday's close", abs(day[0].open / q.previous_close - 1) < 0.01)
+
+
 def test_yahoo_parser() -> None:
     payload = {
         "chart": {
@@ -112,6 +154,7 @@ def test_cache_shares_requests() -> None:
 
 def main() -> int:
     for fn in (test_synthetic_provider, test_synthetic_is_deterministic_but_live,
+               test_synthetic_ranges_span_their_labels,
                test_yahoo_parser, test_cache_shares_requests):
         fn()
     failed = [name for name, ok in _checks if not ok]

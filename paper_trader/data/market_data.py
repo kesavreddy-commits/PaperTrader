@@ -25,7 +25,7 @@ import random
 import threading
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
@@ -483,17 +483,20 @@ class SyntheticProvider(MarketDataProvider):
     real-time behaviour of the UI is faithfully demonstrated.
     """
 
-    # range_key -> (bar_count, step_seconds, per_step_volatility)
+    # range_key -> (bar_seconds, per_bar_volatility). How many bars a range
+    # holds follows from the span its label names, laid on exchange hours by
+    # :meth:`_timeline` — so "Past week" really is five trading days.
     _RANGE_SHAPE = {
-        "1D": (390, 60, 0.0006),
-        "1W": (390, 300, 0.0011),
-        "1M": (336, 1800, 0.0016),
-        "3M": (63, 86_400, 0.014),
-        "YTD": (150, 86_400, 0.014),
-        "1Y": (252, 86_400, 0.014),
-        "5Y": (260, 604_800, 0.030),
-        "ALL": (240, 2_592_000, 0.05),
+        "1D": (60, 0.0006),
+        "1W": (300, 0.0011),
+        "1M": (1800, 0.0016),
+        "3M": (86_400, 0.014),
+        "YTD": (86_400, 0.014),
+        "1Y": (86_400, 0.014),
+        "5Y": (604_800, 0.030),
+        "ALL": (2_592_000, 0.05),
     }
+    _PRE_OPEN, _OPEN, _CLOSE, _POST_CLOSE = dtime(4, 0), dtime(9, 30), dtime(16, 0), dtime(20, 0)
 
     # A small universe used for search and friendly names; any other symbol is
     # still tradable — it just gets a generated price and its ticker as a name.
@@ -525,14 +528,19 @@ class SyntheticProvider(MarketDataProvider):
         price = candles[-1].close if candles else self._current_price(symbol, now)
         anchor = self._anchor(symbol)
         name = self._NAMES.get(symbol, "")
+        # Key statistics describe the trading day's regular session, whatever
+        # range the chart is showing.
+        day = candles if range_key == "1D" else self._series(symbol, "1D", now)
+        regular = [c for c in day if self._OPEN <= c.time.astimezone(_ET).time() < self._CLOSE]
+        session = regular or day
         quote = Quote(
             symbol=symbol,
             price=round(price, 2),
             previous_close=round(anchor, 2),
-            day_high=round(max(c.high for c in candles), 2) if candles else price,
-            day_low=round(min(c.low for c in candles), 2) if candles else price,
-            day_open=round(candles[0].open, 2) if candles else price,
-            volume=float(sum(c.volume for c in candles)),
+            day_high=round(max(c.high for c in session), 2) if session else price,
+            day_low=round(min(c.low for c in session), 2) if session else price,
+            day_open=round(session[0].open, 2) if session else price,
+            volume=float(sum(c.volume for c in session)),
             currency="USD",
             exchange="DEMO",
             short_name=name or symbol,
@@ -576,49 +584,147 @@ class SyntheticProvider(MarketDataProvider):
         live = 0.0007 * math.sin(now / 11 + phase)                   # sub-minute drift
         return max(0.01, anchor * (1 + day + wiggle + live))
 
+    def _timeline(self, range_key: str, now: float) -> list[int]:
+        """Bar start times (epoch seconds, oldest first) for ``range_key`` up to
+        ``now``, on exchange hours the way a live feed returns them.
+
+        1D is today's session — or the last one, before 4:00 ET and on
+        weekends — including pre-market and after-hours; 1W and 1M are
+        regular-hours bars over the last five / ~21 trading days; the daily,
+        weekly and monthly ranges cover the calendar span their label names.
+        Weekdays stand in for trading days (demo data needs no holiday table).
+        """
+        step = self._RANGE_SHAPE.get(range_key, self._RANGE_SHAPE["1D"])[0]
+        et = datetime.fromtimestamp(now, _ET)
+
+        def last_day(start_of_day: dtime) -> date:
+            """The latest weekday whose session (from ``start_of_day``) has begun."""
+            day = et.date()
+            if et.time() < start_of_day:
+                day -= timedelta(days=1)
+            while day.weekday() >= 5:
+                day -= timedelta(days=1)
+            return day
+
+        def weekdays(end: date, *, count: int = 0, since: date | None = None) -> list[date]:
+            days: list[date] = []
+            day = end
+            while (count and len(days) < count) or (since is not None and day >= since):
+                if day.weekday() < 5:
+                    days.append(day)
+                day -= timedelta(days=1)
+            return days[::-1]
+
+        def at(day: date, when: dtime) -> int:
+            return int(datetime.combine(day, when, _ET).timestamp())
+
+        def intraday(days: list[date], start: dtime, stop: dtime) -> list[int]:
+            times: list[int] = []
+            for day in days:
+                t, close = at(day, start), at(day, stop)
+                while t < close and t <= now:
+                    times.append(t)
+                    t += step
+            return times
+
+        if range_key == "1D":
+            return intraday([last_day(self._PRE_OPEN)], self._PRE_OPEN, self._POST_CLOSE)
+        end = last_day(self._OPEN)
+        if range_key == "1W":
+            return intraday(weekdays(end, count=5), self._OPEN, self._CLOSE)
+        if range_key == "1M":
+            return intraday(weekdays(end, since=end - timedelta(days=30)), self._OPEN, self._CLOSE)
+        if range_key in ("3M", "YTD", "1Y"):
+            since = {"3M": end - timedelta(days=91),
+                     "YTD": date(end.year, 1, 1),
+                     "1Y": end - timedelta(days=365)}[range_key]
+            return [at(d, self._OPEN) for d in weekdays(end, since=since)]
+        if range_key == "5Y":
+            monday = end - timedelta(days=end.weekday())
+            weeks = [monday - timedelta(weeks=i) for i in range(5 * 52)]
+            return [at(d, self._OPEN) for d in reversed(weeks)]
+        # ALL: the first weekday of each month for twenty years.
+        months: list[int] = []
+        year, month = end.year, end.month
+        for _ in range(240):
+            first = date(year, month, 1)
+            while first.weekday() >= 5:
+                first += timedelta(days=1)
+            if first <= end:
+                months.append(at(first, self._OPEN))
+            year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+        return months[::-1]
+
     def _series(self, symbol: str, range_key: str, now: float) -> list[Candle]:
-        bars, step, vol = self._RANGE_SHAPE.get(range_key, self._RANGE_SHAPE["1D"])
-        rng = random.Random(f"{symbol}:{range_key}")
-        # Stable random walk (seed depends only on symbol+range, not on time).
-        closes: list[float] = []
-        price = self._anchor(symbol) * (1 + rng.uniform(-0.05, 0.05))
-        drift = rng.uniform(-0.0002, 0.0004)
-        for _ in range(bars):
-            price = max(0.01, price * (1 + drift + rng.gauss(0, vol)))
-            closes.append(price)
-        # Scale the whole series so its final close equals the live current
-        # price. Between polls the live price moves only fractions of a percent,
-        # so historical bars stay visually stable while the last bar tracks live.
+        step, vol = self._RANGE_SHAPE.get(range_key, self._RANGE_SHAPE["1D"])
+        times = self._timeline(range_key, now) or [int(now)]
+        bars = len(times)
         target = self._current_price(symbol, now)
-        scale = target / closes[-1]
-        closes = [c * scale for c in closes]
+        anchor = self._anchor(symbol)
+        if range_key == "1D":
+            # A fresh walk each trading day, pinned at both ends: it opens near
+            # yesterday's close (a small pre-market gap) and ends on the live
+            # price, so the day's change on the chart is the quote's change.
+            session_day = datetime.fromtimestamp(times[0], _ET).date()
+            rng = random.Random(f"{symbol}:1D:{session_day.isoformat()}")
+            start = math.log(anchor * (1 + rng.uniform(-0.006, 0.006)))
+            walk = [0.0]
+            for _ in range(bars - 1):
+                walk.append(walk[-1] + rng.gauss(0, vol))
+            miss = walk[-1] - (math.log(target) - start)
+            span = max(bars - 1, 1)
+            closes = [math.exp(start + w - miss * i / span) for i, w in enumerate(walk)]
+            drift = 0.0
+        else:
+            rng = random.Random(f"{symbol}:{range_key}")
+            # Stable random walk (seed depends only on symbol+range, not on time).
+            closes = []
+            price = anchor * (1 + rng.uniform(-0.05, 0.05))
+            drift = rng.uniform(-0.0002, 0.0004)
+            for _ in range(bars):
+                price = max(0.01, price * (1 + drift + rng.gauss(0, vol)))
+                closes.append(price)
+            # Scale the whole series so its final close equals the live current
+            # price. Between polls the live price moves only fractions of a
+            # percent, so historical bars stay visually stable while the last
+            # bar tracks live.
+            scale = target / closes[-1]
+            closes = [c * scale for c in closes]
 
         candles: list[Candle] = []
-        end = int(now)
-        for i, close in enumerate(closes):
-            ts = end - (bars - 1 - i) * step
+        for i, (ts, close) in enumerate(zip(times, closes)):
+            when = datetime.fromtimestamp(ts, tz=timezone.utc)
             open_ = closes[i - 1] if i > 0 else close * (1 - drift)
             body_hi, body_lo = max(open_, close), min(open_, close)
             wick = close * vol * (0.6 + (i % 5) * 0.18)
+            volume = 500_000 * (1 + 0.5 * math.sin(i / 7.0)) + (i % 13) * 1000
+            if step < 86_400 and not self._OPEN <= when.astimezone(_ET).time() < self._CLOSE:
+                volume *= 0.12  # pre-market and after-hours trade thinly
             candles.append(
                 Candle(
-                    time=datetime.fromtimestamp(ts, tz=timezone.utc),
+                    time=when,
                     open=round(open_, 4),
                     high=round(body_hi + wick, 4),
                     low=round(max(0.01, body_lo - wick), 4),
                     close=round(close, 4),
-                    volume=float(int(500_000 * (1 + 0.5 * math.sin(i / 7.0)) + (i % 13) * 1000)),
+                    volume=float(int(volume)),
                 )
             )
         return candles
 
     @staticmethod
     def _market_state(now: float) -> str:
-        dt = datetime.fromtimestamp(now, tz=timezone.utc)
-        # Approximate US regular hours in UTC (13:30–20:00, Mon–Fri).
-        minutes = dt.hour * 60 + dt.minute
-        if dt.weekday() < 5 and 13 * 60 + 30 <= minutes < 20 * 60:
+        """US equity session by the Eastern clock (weekdays; no holiday table)."""
+        et = datetime.fromtimestamp(now, _ET)
+        if et.weekday() >= 5:
+            return "CLOSED"
+        t = et.time()
+        if SyntheticProvider._PRE_OPEN <= t < SyntheticProvider._OPEN:
+            return "PRE"
+        if SyntheticProvider._OPEN <= t < SyntheticProvider._CLOSE:
             return "REGULAR"
+        if SyntheticProvider._CLOSE <= t < SyntheticProvider._POST_CLOSE:
+            return "POST"
         return "CLOSED"
 
 
