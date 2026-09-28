@@ -21,6 +21,7 @@ from ..core.options import (
     OptionContract,
     OptionQuote,
     OptionRight,
+    market_today,
     price_contract,
     strike_increment,
 )
@@ -100,7 +101,7 @@ class OptionsChainService:
         Independent of the underlying, so the expiration bar is stable as prices
         move. Weeklies cover the next few Fridays; monthlies extend further out.
         """
-        today = today or datetime.now(timezone.utc).date()
+        today = today or market_today()
         weeklies = _next_fridays(today, 5)
         monthlies = _monthlies(today, 6)
         merged = sorted(set(weeklies) | set(monthlies))

@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ...core.options import OptionRight
+from ...core.options import OptionRight, days_to_expiry
 from ...data.options_chain import OptionsChainService
 from .. import theme
 from ..tables import align_headers
@@ -195,8 +195,7 @@ class OptionsChainView(QWidget):
             return
 
         chain = self._service.chain(self._underlying, self._price, self._expiry)
-        today = datetime.now(timezone.utc).date()
-        dte = max(0, (self._expiry - today).days)
+        dte = days_to_expiry(self._expiry)
         self._header.setText(
             f"{self._underlying}  ·  {fmt_price(self._price)}   "
             f"<span style='color:{theme.muted_color()}'>"

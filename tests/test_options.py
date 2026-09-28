@@ -235,12 +235,41 @@ def test_persistence_roundtrip() -> None:
           any(t.is_option and t.multiplier == 100 for t in loaded.trades))
 
 
+def test_expiry_follows_the_exchange_calendar() -> None:
+    """Options expire at the 4pm Eastern close, and days count in Eastern time."""
+    from paper_trader.core.options import days_to_expiry, market_today
+
+    utc = timezone.utc
+    # Winter (EST, UTC-5): the close is 21:00 UTC, not 20:00.
+    jan = OptionContract("AAPL", date(2030, 1, 18), 150.0, OptionRight.CALL)
+    check("winter: still live at 3:30pm ET", not jan.is_expired(datetime(2030, 1, 18, 20, 30, tzinfo=utc)))
+    check("winter: still priced with time left at 3:30pm ET",
+          jan.years_to_expiry(datetime(2030, 1, 18, 20, 30, tzinfo=utc)) > 0)
+    check("winter: expired at the 4pm ET close", jan.is_expired(datetime(2030, 1, 18, 21, 0, tzinfo=utc)))
+    # Summer (EDT, UTC-4): the close is 20:00 UTC.
+    jul = OptionContract("AAPL", date(2030, 7, 19), 150.0, OptionRight.CALL)
+    check("summer: live a minute before the close", not jul.is_expired(datetime(2030, 7, 19, 19, 59, tzinfo=utc)))
+    check("summer: expired at the 4pm ET close", jul.is_expired(datetime(2030, 7, 19, 20, 0, tzinfo=utc)))
+
+    # Monday 9pm ET is already Tuesday in UTC; the market calendar still says Monday.
+    monday_evening = datetime(2030, 1, 15, 2, 0, tzinfo=utc)
+    check("evening ET is still today on the market calendar", market_today(monday_evening) == date(2030, 1, 14))
+    check("evening DTE counts from the ET date", days_to_expiry(date(2030, 1, 18), monday_evening) == 4)
+    check("DTE never negative", days_to_expiry(date(2030, 1, 10), monday_evening) == 0)
+
+    # Thursday evening ET must still offer Friday's expiration.
+    thursday_evening = datetime(2030, 1, 18, 2, 0, tzinfo=utc)      # Thu 9pm ET
+    svc = OptionsChainService()
+    check("Thursday evening still lists Friday's expiry",
+          svc.expirations(market_today(thursday_evening))[0] == date(2030, 1, 18))
+
+
 def main() -> int:
     for fn in (test_black_scholes, test_occ_roundtrip, test_open_close_long,
                test_short_and_collateral, test_flip_through_zero,
                test_expiration_settlement, test_deferred_settlement_without_price,
                test_portfolio_with_options, test_chain_service,
-               test_persistence_roundtrip):
+               test_persistence_roundtrip, test_expiry_follows_the_exchange_calendar):
         fn()
     failed = [name for name, ok in _checks if not ok]
     for name, ok in _checks:

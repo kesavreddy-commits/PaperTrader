@@ -21,7 +21,8 @@ from .models import Session, Side
 
 _ET = ZoneInfo("America/New_York")
 _EPS = 1e-9
-from .options import CONTRACT_MULTIPLIER, collateral_per_contract, price_contract
+from .options import (CONTRACT_MULTIPLIER, collateral_per_contract, days_to_expiry,
+                      price_contract)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,7 +205,7 @@ class Portfolio:
                     right=contract.right.value,
                     strike=contract.strike,
                     expiry=contract.expiry,
-                    dte=max(0, (contract.expiry - now.date()).days),
+                    dte=days_to_expiry(contract.expiry, now),
                     quantity=opos.quantity,
                     avg_price=opos.avg_price,
                     mark=quote.mark,

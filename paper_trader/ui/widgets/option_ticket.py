@@ -32,6 +32,7 @@ from ...core.options import (
     OptionContract,
     OptionQuote,
     collateral_per_contract,
+    days_to_expiry,
 )
 from .. import theme
 from ..format import fmt_money, fmt_price
@@ -296,7 +297,7 @@ class OptionTicket(QWidget):
         mny = c.moneyness(self._underlying_price) if self._underlying_price else ""
         mny_color = {"ITM": theme.gain_color(), "OTM": theme.muted_color(),
                      "ATM": theme.color("accent")}.get(mny, theme.muted_color())
-        dte = max(0, (c.expiry - _today()).days)
+        dte = days_to_expiry(c.expiry)
         chips = []
         if mny:
             chips.append(f"<span style='color:{mny_color}'>● {mny}</span>")
@@ -360,7 +361,3 @@ class OptionTicket(QWidget):
         self.orderRequested.emit(OptionOrderTicket(
             contract=self._contract, side=self._side, quantity=qty, price=fill))
 
-
-def _today():
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).date()

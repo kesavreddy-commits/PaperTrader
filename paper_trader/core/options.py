@@ -27,10 +27,15 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from enum import Enum
+from zoneinfo import ZoneInfo
 
 CONTRACT_MULTIPLIER = 100          # shares represented by one option contract
 RISK_FREE_RATE = 0.043             # flat annual risk-free rate used for pricing
 _SECONDS_PER_YEAR = 365.0 * 24 * 3600
+# Listed options live on the exchange's calendar: they expire at the 4pm
+# Eastern close, which is 20:00 UTC in summer but 21:00 UTC in winter.
+_ET = ZoneInfo("America/New_York")
+_CLOSE = time(16, 0)
 _SQRT_2 = math.sqrt(2.0)
 
 
@@ -48,6 +53,23 @@ class OptionRight(str, Enum):
     @property
     def short(self) -> str:
         return "Call" if self is OptionRight.CALL else "Put"
+
+
+# --------------------------------------------------------------------------- #
+# Exchange calendar
+# --------------------------------------------------------------------------- #
+def market_today(now: datetime | None = None) -> date:
+    """Today's date on the exchange calendar (US/Eastern), not in UTC.
+
+    UTC rolls over at 8pm Eastern, which would make every evening's
+    days-to-expiry one short and retire an expiration hours before its day.
+    """
+    return (now or datetime.now(timezone.utc)).astimezone(_ET).date()
+
+
+def days_to_expiry(expiry: date, now: datetime | None = None) -> int:
+    """Calendar days from today (exchange calendar) to ``expiry``, never negative."""
+    return max(0, (expiry - market_today(now)).days)
 
 
 # --------------------------------------------------------------------------- #
@@ -128,8 +150,8 @@ class OptionContract:
 
     # -- time -------------------------------------------------------------- #
     def expiry_datetime(self) -> datetime:
-        """Expiration as a tz-aware datetime at the 4pm ET close (≈20:00 UTC)."""
-        return datetime.combine(self.expiry, time(20, 0), tzinfo=timezone.utc)
+        """Expiration as a tz-aware datetime at the 4pm Eastern close."""
+        return datetime.combine(self.expiry, _CLOSE, tzinfo=_ET)
 
     def years_to_expiry(self, now: datetime | None = None) -> float:
         """Time to expiry in years (never negative)."""
