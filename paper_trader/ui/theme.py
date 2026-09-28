@@ -63,6 +63,12 @@ PALETTES: dict[str, dict[str, str]] = {
         "buy_text": "#000000",
         "sell": "#ff5000",
         "sell_text": "#000000",
+        # The order pill before an order is valid: its accent, dimmed — the
+        # reference's pill is never grey.
+        "buy_idle": "#0c3d10",
+        "buy_idle_text": "#00c805",
+        "sell_idle": "#4a1a05",
+        "sell_idle_text": "#ff5000",
         "disabled_bg": "#26292c",
         "disabled_text": "#6b7275",
         "scrollbar": "#2b2e31",
@@ -118,6 +124,10 @@ PALETTES: dict[str, dict[str, str]] = {
         "buy_text": "#000000",
         "sell": "#ff5000",
         "sell_text": "#000000",
+        "buy_idle": "#d4f5d5",
+        "buy_idle_text": "#007a04",
+        "sell_idle": "#ffe0d1",
+        "sell_idle_text": "#b83900",
         "disabled_bg": "#eef2f5",
         "disabled_text": "#9aa4ab",
         "scrollbar": "#cdd5da",
@@ -384,13 +394,14 @@ QPushButton#BuyButton {
 QPushButton#BuyButton:hover { background-color: $green_hover; }
 QPushButton#BuyButton[accent="down"] { background-color: $sell; color: $sell_text; }
 QPushButton#BuyButton[accent="down"]:hover { background-color: $red_hover; }
-QPushButton#BuyButton:disabled { background-color: $disabled_bg; color: $disabled_text; }
+QPushButton#BuyButton:disabled { background-color: $buy_idle; color: $buy_idle_text; }
+QPushButton#BuyButton[accent="down"]:disabled { background-color: $sell_idle; color: $sell_idle_text; }
 QPushButton#SellButton {
     background-color: $sell; color: $sell_text; border: none;
     border-radius: 22px; padding: 0 18px; font-size: 14px; font-weight: 700;
 }
 QPushButton#SellButton:hover { background-color: $red_hover; }
-QPushButton#SellButton:disabled { background-color: $disabled_bg; color: $disabled_text; }
+QPushButton#SellButton:disabled { background-color: $sell_idle; color: $sell_idle_text; }
 
 /* Outlined pills under the card ("Trade AAPL Options", "Watch AAPL"). */
 QPushButton#Outline {
