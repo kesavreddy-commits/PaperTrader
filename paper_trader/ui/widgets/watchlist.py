@@ -223,8 +223,7 @@ class _RowDelegate(QStyledItemDelegate):
         base = QFont(option.font)
         bold = QFont(base)
         bold.setWeight(QFont.Weight.Bold)
-        small = QFont(base)
-        small.setPointSizeF(max(8.0, base.pointSizeF() - 1.5))
+        small = theme.resized(base, -2)
         theme.tabular(bold)
         mid_y = inner.center().y()
 

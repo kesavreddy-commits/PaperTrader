@@ -67,7 +67,7 @@ from .segments import segment_group
 pg.setConfigOptions(antialias=True)
 
 # Ranges whose bars are intraday — used to pick the hover-label time format.
-_INTRADAY_RANGES = {"1D", "1W"}
+_INTRADAY_RANGES = {"1D", "1W", "1M"}   # bars shorter than a day
 
 # The exchange's day, in minutes after midnight Eastern.
 _ET = ZoneInfo("America/New_York")
@@ -99,6 +99,105 @@ def session_runs(xs: np.ndarray) -> list[tuple[int, int, str]]:
     return [(int(s), int(e), names[int(kind[s])]) for s, e in zip(starts, ends)]
 
 
+def close_gaps(epochs: np.ndarray) -> np.ndarray:
+    """Plot positions for a multi-day series with the market's closed hours
+    taken out.
+
+    Bars arrive with nights, weekends and holidays between them. On a linear
+    clock those closures take most of the width — a week of 5-minute bars is
+    three-quarters night — and the line bridges each one with a long straight
+    segment. Like the reference, every gap longer than a bar and a half shrinks
+    to one bar step, so the sessions sit side by side. Positions stay in
+    seconds (bar widths, zoom and pan limits are unchanged); :class:`TimeAxis`
+    maps them back to wall-clock times for its labels.
+    """
+    if len(epochs) < 3:
+        return epochs.astype(float, copy=True)
+    steps = np.diff(epochs)
+    step = float(np.median(steps))
+    if not np.isfinite(step) or step <= 0:
+        return epochs.astype(float, copy=True)
+    steps = np.where(steps > step * 1.5, step, steps)
+    return np.concatenate(([float(epochs[0])], float(epochs[0]) + np.cumsum(steps)))
+
+
+class TimeAxis(pg.DateAxisItem):
+    """The chart's time axis, for wall-clock or gap-closed positions.
+
+    Without a mapping it is a plain :class:`DateAxisItem` (the 1D chart runs
+    on the clock, to the end of the day). With one (see :func:`close_gaps`),
+    ticks sit on the first bar of each hour, day, week, month or year —
+    the finest level that fits the width — labelled with that bar's time.
+    """
+
+    _LABEL_PX = 84      # room one label needs, gap included
+
+    # (label, boundary key) from finest to coarsest.
+    _LEVELS = (
+        (lambda t: t.strftime("%I %p").lstrip("0"), lambda t: (t.date(), t.hour)),
+        (lambda t: f"{t:%b} {t.day}", lambda t: t.date()),
+        (lambda t: f"{t:%b} {t.day}", lambda t: t.isocalendar()[:2]),
+        (lambda t: f"{t:%b}", lambda t: (t.year, t.month)),
+        (lambda t: f"{t:%Y}", lambda t: t.year),
+    )
+
+    def __init__(self) -> None:
+        super().__init__(orientation="bottom")
+        self._xs: np.ndarray | None = None
+        self._epochs: np.ndarray | None = None
+        self._bounds: list[np.ndarray] = []
+        self._label = self._LEVELS[1][0]
+
+    def set_mapping(self, xs: np.ndarray | None, epochs: np.ndarray | None = None) -> None:
+        """Label ``xs`` (plot positions) with ``epochs``; ``None`` for the clock."""
+        if xs is None or epochs is None or not len(xs):
+            self._xs = self._epochs = None
+            self._bounds = []
+        else:
+            local = [datetime.fromtimestamp(float(t)).astimezone() for t in epochs]
+            self._xs, self._epochs = xs, epochs
+            self._bounds = []
+            for _label, key in self._LEVELS:
+                keys = [key(t) for t in local]
+                self._bounds.append(np.array(
+                    [i for i in range(1, len(keys)) if keys[i] != keys[i - 1]], dtype=int))
+        self.picture = None
+        self.update()
+
+    def tickValues(self, minVal, maxVal, size):  # noqa: N802 (pyqtgraph naming)
+        if self._xs is None:
+            return super().tickValues(minVal, maxVal, size)
+        lo = int(np.searchsorted(self._xs, minVal))
+        hi = int(np.searchsorted(self._xs, maxVal, side="right"))
+        room = max(2, int(size / self._LABEL_PX))
+        visible = [b[(b >= lo) & (b < hi)] for b in self._bounds]
+        pick = None
+        for level, ticks in enumerate(visible):
+            if 0 < len(ticks) <= room:
+                pick = level
+                break
+        # A level that fits with too few ticks (1Y at month -> year: one label)
+        # reads worse than the finer level thinned out.
+        if pick is None or (len(visible[pick]) < 3 and pick > 0 and len(visible[pick - 1])):
+            pick = (pick - 1) if pick is not None else len(visible) - 1
+            while pick > 0 and not len(visible[pick]):
+                pick -= 1
+        ticks = visible[pick]
+        if len(ticks) > room:
+            ticks = ticks[:: -(-len(ticks) // room)]
+        self._label = self._LEVELS[pick][0]
+        return [(1.0, [float(self._xs[i]) for i in ticks])]
+
+    def tickStrings(self, values, scale, spacing):  # noqa: N802 (pyqtgraph naming)
+        if self._xs is None:
+            return super().tickStrings(values, scale, spacing)
+        out = []
+        for v in values:
+            i = min(int(np.searchsorted(self._xs, v)), len(self._xs) - 1)
+            out.append(self._label(datetime.fromtimestamp(float(self._epochs[i])).astimezone()))
+        return out
+
+
 # --------------------------------------------------------------------------- #
 # Candlestick graphics item
 # --------------------------------------------------------------------------- #
@@ -117,8 +216,10 @@ class CandlestickItem(pg.GraphicsObject):
         self._rect = QRectF()
 
     def set_data(
-        self, candles: list[Candle], up_color: str, down_color: str
+        self, candles: list[Candle], up_color: str, down_color: str,
+        xs: np.ndarray | None = None,
     ) -> None:
+        """Draw ``candles`` at ``xs`` (plot positions; default: their times)."""
         self._picture = QPicture()
         if not candles:
             self._rect = QRectF()
@@ -126,7 +227,8 @@ class CandlestickItem(pg.GraphicsObject):
             self.update()
             return
 
-        xs = [c.epoch for c in candles]
+        if xs is None:
+            xs = [c.epoch for c in candles]
         # Candle body width = 70% of the median time step between bars.
         step = float(np.median(np.diff(xs))) if len(xs) >= 2 else 60.0
         if not np.isfinite(step) or step <= 0:
@@ -146,11 +248,11 @@ class CandlestickItem(pg.GraphicsObject):
         # A doji (open == close) still needs a visible body: give it a hairline
         # proportional to the series' own range.
         doji = (hi_max - lo_min) * 0.0006 or 0.0001
-        for c in candles:
+        for c, x in zip(candles, xs):
+            x = float(x)
             rising = c.close >= c.open
             painter.setPen(up_pen if rising else down_pen)
             painter.setBrush(up_brush if rising else down_brush)
-            x = c.epoch
             painter.drawLine(QPointF(x, c.low), QPointF(x, c.high))  # wick
             top = max(c.open, c.close)
             bottom = min(c.open, c.close)
@@ -296,8 +398,9 @@ class ChartWidget(QWidget):
 
         self._view = PriceViewBox()
         self._view.fit_y = self._fit_price_window
+        self._time_axis = TimeAxis()
         self._plot = pg.PlotWidget(viewBox=self._view,
-                                   axisItems={"bottom": pg.DateAxisItem()})
+                                   axisItems={"bottom": self._time_axis})
         self._plot.setMenuEnabled(False)
         # The wheel zooms time; price refits itself (see _autoscale_y), so the
         # y axis is never dragged directly.
@@ -468,7 +571,7 @@ class ChartWidget(QWidget):
         return None
 
     def set_accent(self, name: str) -> None:
-        """Follow the stock's day (``"up"``/``"down"``) in the range tabs' hover."""
+        """Follow the displayed change (``"up"``/``"down"``) in the range tabs."""
         for btn in self._range_group.buttons():
             theme.set_accent(btn, name)
 
@@ -476,8 +579,16 @@ class ChartWidget(QWidget):
         """Mirror the candle list into numpy arrays for the zoom hot path."""
         if not self._candles:
             self._xs = self._closes = self._lows = self._highs = np.empty(0)
+            self._time_axis.set_mapping(None)
             return
-        self._xs = np.fromiter((c.epoch for c in self._candles), float, len(self._candles))
+        epochs = np.fromiter((c.epoch for c in self._candles), float, len(self._candles))
+        if self._range == "1D":
+            # One day runs on the clock, out to the session's close.
+            self._xs = epochs
+            self._time_axis.set_mapping(None)
+        else:
+            self._xs = close_gaps(epochs)
+            self._time_axis.set_mapping(self._xs, epochs)
         self._closes = np.fromiter((c.close for c in self._candles), float, len(self._candles))
         self._lows = np.fromiter((c.low for c in self._candles), float, len(self._candles))
         self._highs = np.fromiter((c.high for c in self._candles), float, len(self._candles))
@@ -561,15 +672,14 @@ class ChartWidget(QWidget):
             self._plot.showAxis(axis, show=show)
 
     def _rising(self) -> bool:
-        """Is the series up? Measured against the previous close on a 1D chart —
-        the same reference the quoted day change uses — so the line's colour and
-        the headline percentage can never disagree. Longer ranges compare the
-        last bar with the first."""
+        """Is the series up? Measured against :meth:`reference_price` — the
+        previous close on 1D, the range's first bar otherwise — the same
+        reference the hero's change line uses, so the line's colour and the
+        headline figure can never disagree."""
         closes = self._closes
-        if not len(closes):
+        reference = self.reference_price()
+        if not len(closes) or reference is None:
             return True
-        reference = (self._prev_close if self._range == "1D" and self._prev_close
-                     else float(closes[0]))
         return float(closes[-1]) >= reference
 
     def _trend_colors(self) -> tuple[str, str]:
@@ -628,7 +738,7 @@ class ChartWidget(QWidget):
             for item in (self._line_item, self._line_live, self._line_hi):
                 item.hide()
             self._candle_item.show()
-            self._candle_item.set_data(self._candles, colors["up"], colors["down"])
+            self._candle_item.set_data(self._candles, colors["up"], colors["down"], self._xs)
         else:
             self._candle_item.hide()
             self._line_item.show()
@@ -652,16 +762,18 @@ class ChartWidget(QWidget):
             self._baseline.hide()
 
         # Frame the data only when the dataset (symbol/range/mode) changes, so a
-        # manual zoom survives the periodic refresh.
+        # manual zoom survives the periodic refresh. The pan limits move first:
+        # left at the previous range's, they would clamp the new frame (a month
+        # squeezed into the old day's window, reading as "zoomed").
         self._frame = self._frame_bounds()
+        x0, x1 = self._frame
+        span = (x1 - x0) or 1.0
+        self._plot.getViewBox().setLimits(xMin=x0 - span * 0.05, xMax=x1 + span * 0.05)
         if is_new:
             self._suppress_autoscale = True
             self._apply_frame()
             self._suppress_autoscale = False
             self._hide_crosshair()
-        x0, x1 = self._frame
-        span = (x1 - x0) or 1.0
-        self._plot.getViewBox().setLimits(xMin=x0 - span * 0.05, xMax=x1 + span * 0.05)
         # A periodic data refresh shouldn't re-snap a view the user has zoomed;
         # only a genuinely new dataset re-frames unconditionally.
         self._autoscale_y(force=is_new)
@@ -879,6 +991,8 @@ class ChartWidget(QWidget):
     # ------------------------------------------------------------------ #
     def _on_range_clicked(self, range_key: str) -> None:
         self._range = range_key
+        for btn in self._range_group.buttons():
+            btn.setChecked(btn.text() == range_key)
         self._candles = []
         self._last_key = None
         self._hide_crosshair()
@@ -970,11 +1084,12 @@ class ChartWidget(QWidget):
         candle = self._candles[idx]
 
         self._hover_index = idx
-        self._vline.setValue(candle.epoch)
+        x = float(xs[idx])
+        self._vline.setValue(x)
         self._vline.show()
 
         if self._mode == "line":
-            self._dot.setData([candle.epoch], [candle.close],
+            self._dot.setData([x], [candle.close],
                               brush=pg.mkBrush(self._hi_color or self._live_color))
             self._dot.show()
             self._refresh_highlight()
@@ -1010,7 +1125,7 @@ class ChartWidget(QWidget):
         if self._mode == "line":
             (_x0, _x1), (y0, y1) = vb.viewRange()
             self._time_label.setText(self._hover_time_text(candle))
-            self._time_label.setPos(candle.epoch, y1 - (y1 - y0) * 0.012)
+            self._time_label.setPos(x, y1 - (y1 - y0) * 0.012)
             self._time_label.show()
         else:
             self._time_label.hide()

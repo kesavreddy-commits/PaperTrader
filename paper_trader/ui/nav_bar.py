@@ -299,8 +299,7 @@ class _ResultDelegate(QStyledItemDelegate):
         inner = rect.adjusted(12, 0, -12, 0)
 
         base = QFont(option.font)
-        bold = QFont(base)
-        bold.setPointSizeF(base.pointSizeF() + 0.5)
+        bold = theme.resized(base, 1)
         bold.setWeight(QFont.Weight.Bold)
         painter.setFont(bold)
         painter.setPen(QColor(theme.color("text")))
@@ -308,8 +307,7 @@ class _ResultDelegate(QStyledItemDelegate):
         painter.drawText(QRect(inner.left(), inner.top(), sym_w, inner.height()),
                          Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, symbol)
 
-        small = QFont(base)
-        small.setPointSizeF(max(8.0, base.pointSizeF() - 1.5))
+        small = theme.resized(base, -2)
         meta_w = QFontMetrics(small).horizontalAdvance(meta) if meta else 0
         if meta:
             painter.setFont(small)

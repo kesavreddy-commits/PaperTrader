@@ -303,8 +303,7 @@ class _SessionDelegate(QStyledItemDelegate):
         base = QFont(option.font)
         bold = QFont(base)
         bold.setWeight(QFont.Weight.Bold)
-        small = QFont(base)
-        small.setPointSizeF(max(8.0, base.pointSizeF() - 1.0))
+        small = theme.resized(base, -1)
         half = inner.height() / 2
         name = index.data(_SESSION_NAME) or ""
         painter.setFont(bold)

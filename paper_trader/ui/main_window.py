@@ -847,7 +847,6 @@ class MainWindow(QMainWindow):
             self._price_header.update_quote(quote)
             self._day_stats.update_quote(quote)
             self._chart.update_reference(quote.previous_close)
-            self._sync_accent(quote.change)
             self._sync_range_change()
             self._trade_panel.set_market_price(quote.price)
             self._trade_panel.set_session(quote.market_state)
@@ -870,12 +869,19 @@ class MainWindow(QMainWindow):
             self._price_header.show_point(float(price))
 
     def _sync_range_change(self) -> None:
-        """Measure the hero's change line over the chart's range."""
+        """Measure the hero's change line over the chart's range, and tint the
+        page by it — like the reference, "Past year" up on a red day is green."""
         rng = self._chart.current_range()
-        self._price_header.set_range(RANGE_LABELS.get(rng, rng), self._chart.reference_price())
+        reference = self._chart.reference_price()
+        self._price_header.set_range(RANGE_LABELS.get(rng, rng), reference)
+        quote = self._active_quote
+        if reference and quote is not None and quote.symbol == self._active_symbol:
+            # Until the new range's first bar arrives there is no reference;
+            # the accent holds rather than flickering through a guess.
+            self._sync_accent(quote.price - reference)
 
     def _sync_accent(self, change: float | None) -> None:
-        """Tint the card, its pills and the range tabs by the stock's day."""
+        """Tint the card, its pills and the range tabs by the displayed change."""
         name = theme.accent_name(change)
         if name == self._accent:
             return

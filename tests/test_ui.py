@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ.setdefault("PAPER_TRADER_HOME", tempfile.mkdtemp(prefix="pt_uitest_"))
 
+import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -457,15 +458,33 @@ def test_hero_follows_the_chart_range() -> None:
     win.close()
 
 
-def test_accent_follows_the_stocks_day() -> None:
-    """Like the reference, the card's pill and outlines turn orange on a down day."""
+def test_accent_follows_the_displayed_change() -> None:
+    """Like the reference, the page tints by the change the hero shows: orange
+    on a down day, and by the range's own change on longer ranges."""
+    from paper_trader.data.models import Candle
+
     win = _window()
+    win._stop_feed()   # keep the demo feed from replacing the hand-fed data
     pill = win._trade_panel._submit
+    win.set_active_symbol("AAPL")
     win._on_quote(_quote("AAPL", 95.0, 100.0))
     check("a down day turns the accent orange",
           pill.property("accent") == "down" and win._options_cta.property("accent") == "down")
     win._on_quote(_quote("AAPL", 105.0, 100.0))
     check("an up day turns it back", pill.property("accent") == "up")
+
+    win._on_quote(_quote("AAPL", 95.0, 100.0))          # down on the day...
+    win._chart._on_range_clicked("1M")
+    check("a range change holds the accent until its bars arrive",
+          pill.property("accent") == "down")
+    now = datetime.now(timezone.utc)
+    month = [Candle(time=now, open=80.0, high=81.0, low=79.0, close=80.5, volume=1.0),
+             Candle(time=now, open=90.0, high=96.0, low=89.0, close=95.0, volume=1.0)]
+    win._on_chart("AAPL", "1M", month)                   # ...but up on the month
+    check("an up month on a down day is green",
+          pill.property("accent") == "up" and win._chart._rising())
+    check("the range tab follows a programmatic range change",
+          [b.text() for b in win._chart._range_group.buttons() if b.isChecked()] == ["1M"])
     win.close()
 
 
@@ -506,6 +525,79 @@ def test_money_never_reads_negative_zero() -> None:
     check("no '$-0.00'", fmt_signed_money(noise) == "$0.00" and fmt_money(-0.0) == "$0.00")
     check("no '+-0.00%'", fmt_signed_pct(-0.0) == "+0.00%")
     check("a real loss keeps its sign", fmt_signed_money(-0.01) == "-$0.01")
+
+
+def test_a_new_range_is_framed_whole() -> None:
+    """Switching range frames the new series. The pan limits used to trail a
+    render behind, clamping a month into the previous day's window."""
+    provider = SyntheticProvider()
+    quote, day = provider.fetch_chart("AAPL", "1D")
+    _q, month = provider.fetch_chart("AAPL", "1M")
+    w = ChartWidget()
+    w.resize(1000, 480)
+    w.show()
+    w.set_symbol("AAPL")
+    w.update_reference(quote.previous_close)
+    w.set_candles("AAPL", "1D", day)
+    app.processEvents()
+    w._on_range_clicked("1M")
+    w.set_candles("AAPL", "1M", month)
+    app.processEvents()
+    (x0, x1), _ = w._plot.getViewBox().viewRange()
+    check("the whole month is in view", x0 <= w._xs[0] + 1 and x1 >= w._xs[-1] - 1)
+    check("a fresh range doesn't offer 'Reset zoom'", not w._reset_btn.isVisible())
+    w.close()
+
+
+def test_multi_day_ranges_close_market_gaps() -> None:
+    """Nights and weekends don't take up the chart: sessions sit side by side,
+    and the axis still names the real days."""
+    from paper_trader.ui.widgets.chart import close_gaps
+
+    provider = SyntheticProvider()
+    quote, day = provider.fetch_chart("AAPL", "1D")
+    _q, week = provider.fetch_chart("AAPL", "1W")
+    epochs = np.array([c.epoch for c in week])
+    xs = close_gaps(epochs)
+    steps = np.diff(xs)
+    check("no step wider than a bar and a half", steps.max() <= np.median(steps) * 1.5)
+    check("regular bars keep their spacing",
+          np.allclose(steps[np.diff(epochs) <= 300], 300))
+    w = ChartWidget()
+    w.resize(1000, 480)
+    w.show()
+    w.set_symbol("AAPL")
+    w._on_range_clicked("1W")
+    w.set_candles("AAPL", "1W", week)
+    app.processEvents()
+    axis = w._time_axis
+    (x0, x1), _ = w._plot.getViewBox().viewRange()
+    ticks = axis.tickValues(x0, x1, 900)[0][1]
+    labels = axis.tickStrings(ticks, 1.0, 1.0)
+    days = sorted({datetime.fromtimestamp(c.epoch).astimezone().date() for c in week})
+    check("the week's axis names its days",
+          labels == [f"{d:%b} {d.day}" for d in days[1:]])
+    w._on_range_clicked("1D")
+    w.set_candles("AAPL", "1D", day)
+    check("a single day stays on the clock",
+          np.array_equal(w._xs, np.array([c.epoch for c in day])))
+    w.close()
+
+
+def test_small_print_scales_from_the_stylesheet_font() -> None:
+    """Delegates derive their small/bold text from a px-sized stylesheet font.
+
+    Point arithmetic on such a font (pointSizeF() == -1) used to fall back to a
+    flat 8pt — 8px on macOS — so watchlist names and search tags shrank there.
+    """
+    from PyQt6.QtGui import QFont
+
+    px = QFont(); px.setPixelSize(13)
+    pt = QFont(); pt.setPointSizeF(10.0)
+    check("px font shrinks in px", theme.resized(px, -2).pixelSize() == 11)
+    check("px font grows in px", theme.resized(px, 1).pixelSize() == 14)
+    check("pt font keeps its unit", abs(theme.resized(pt, -2).pointSizeF() - 8.5) < 0.01)
+    check("resized never hits zero", theme.resized(px, -40).pixelSize() >= 1)
 
 
 def test_blotter_drops_columns_it_cannot_fit() -> None:
@@ -590,10 +682,13 @@ def main() -> int:
                test_buy_button_keeps_its_fill,
                test_chart_scrub_drives_the_hero,
                test_hero_follows_the_chart_range,
-               test_accent_follows_the_stocks_day,
+               test_accent_follows_the_displayed_change,
                test_watchlist_rows_survive_a_list_change,
                test_notices_surface_as_toasts,
                test_money_never_reads_negative_zero,
+               test_small_print_scales_from_the_stylesheet_font,
+               test_a_new_range_is_framed_whole,
+               test_multi_day_ranges_close_market_gaps,
                test_blotter_drops_columns_it_cannot_fit,
                test_watchlist_can_be_hidden_and_stays_hidden,
                test_legacy_window_still_runs):

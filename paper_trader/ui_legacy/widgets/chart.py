@@ -39,6 +39,7 @@ from ...config import CHART_RANGES
 from ...data.models import Candle
 from ...ui import anim, theme
 from ...ui.format import fmt_price
+from ...ui.widgets.chart import TimeAxis, close_gaps
 
 pg.setConfigOptions(antialias=True)
 
@@ -54,7 +55,8 @@ class CandlestickItem(pg.GraphicsObject):
         self._picture = QPicture()
         self._rect = QRectF()
 
-    def set_data(self, candles: list[Candle], up_color: str, down_color: str) -> None:
+    def set_data(self, candles: list[Candle], up_color: str, down_color: str,
+                 xs=None) -> None:
         self._picture = QPicture()
         if not candles:
             self._rect = QRectF()
@@ -62,7 +64,8 @@ class CandlestickItem(pg.GraphicsObject):
             self.update()
             return
 
-        xs = [c.epoch for c in candles]
+        if xs is None:
+            xs = [c.epoch for c in candles]
         # Candle body width = 70% of the median time step between bars.
         if len(xs) >= 2:
             step = float(np.median(np.diff(xs)))
@@ -78,11 +81,11 @@ class CandlestickItem(pg.GraphicsObject):
 
         lo_min = min(c.low for c in candles)
         hi_max = max(c.high for c in candles)
-        for c in candles:
+        for c, x in zip(candles, xs):
+            x = float(x)
             rising = c.close >= c.open
             painter.setPen(up_pen if rising else down_pen)
             painter.setBrush(up_brush if rising else down_brush)
-            x = c.epoch
             painter.drawLine(QPointF(x, c.low), QPointF(x, c.high))  # wick
             top = max(c.open, c.close)
             bottom = min(c.open, c.close)
@@ -184,7 +187,10 @@ class ChartWidget(QWidget):
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
 
-        self._plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
+        # Multi-day ranges plot with the market's closed hours taken out.
+        self._time_axis = TimeAxis()
+        self._plot_xs = np.empty(0)
+        self._plot = pg.PlotWidget(axisItems={"bottom": self._time_axis})
         self._plot.setMenuEnabled(False)
         self._plot.setMouseEnabled(x=True, y=False)
         self._plot.hideButtons()
@@ -287,7 +293,14 @@ class ChartWidget(QWidget):
             self._baseline.hide()
             return
 
-        xs = np.array([c.epoch for c in self._candles], dtype=float)
+        epochs = np.array([c.epoch for c in self._candles], dtype=float)
+        if self._range == "1D":
+            xs = epochs
+            self._time_axis.set_mapping(None)
+        else:
+            xs = close_gaps(epochs)
+            self._time_axis.set_mapping(xs, epochs)
+        self._plot_xs = xs
         closes = np.array([c.close for c in self._candles], dtype=float)
         rising = closes[-1] >= closes[0]
         trend = colors["up"] if rising else colors["down"]
@@ -300,7 +313,7 @@ class ChartWidget(QWidget):
             self._drawing = False
             self._line_item.hide()
             self._candle_item.show()
-            self._candle_item.set_data(self._candles, colors["up"], colors["down"])
+            self._candle_item.set_data(self._candles, colors["up"], colors["down"], xs)
             y_lo = float(min(c.low for c in self._candles))
             y_hi = float(max(c.high for c in self._candles))
         else:
@@ -389,10 +402,12 @@ class ChartWidget(QWidget):
             return
         point = vb.mapSceneToView(pos)
         x = point.x()
-        xs = [c.epoch for c in self._candles]
-        idx = int(np.argmin(np.abs(np.array(xs) - x)))
+        xs = self._plot_xs
+        if len(xs) != len(self._candles):
+            return
+        idx = int(np.argmin(np.abs(xs - x)))
         candle = self._candles[idx]
-        self._vline.setValue(candle.epoch)
+        self._vline.setValue(float(xs[idx]))
         self._hline.setValue(candle.close)
         self._vline.show()
         self._hline.show()

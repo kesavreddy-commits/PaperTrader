@@ -204,6 +204,24 @@ def set_accent(widget, name: str) -> None:
     widget.update()
 
 
+def resized(font, delta_px: float):
+    """Return a copy of ``font`` ``delta_px`` pixels larger (negative: smaller).
+
+    The stylesheet sizes fonts in pixels, which leaves ``pointSizeF()`` at -1
+    on every styled widget's font — point arithmetic on it goes negative, or,
+    clamped, lands on a fixed point size that renders differently per screen
+    DPI (8pt is 8px on macOS). This works in whichever unit the font carries.
+    """
+    from PyQt6.QtGui import QFont
+
+    out = QFont(font)
+    if font.pixelSize() > 0:
+        out.setPixelSize(max(1, round(font.pixelSize() + delta_px)))
+    elif font.pointSizeF() > 0:
+        out.setPointSizeF(max(1.0, font.pointSizeF() + delta_px * 0.75))
+    return out
+
+
 def tabular(font):
     """Return ``font`` with tabular (fixed-width) figures, where Qt supports it.
 
