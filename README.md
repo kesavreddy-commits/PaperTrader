@@ -1,5 +1,9 @@
 # Paper Trader
 
+
+https://github.com/user-attachments/assets/cac3100f-b894-4394-aa11-1da3a4c711ad
+
+
 A local, real-time **paper-trading desktop app** with a pure-black, Robinhood-style
 GUI — including an **animated** interface (rolling numbers, green/red price flashes,
 a chart line that draws itself in) and **options trading** on the built-in
