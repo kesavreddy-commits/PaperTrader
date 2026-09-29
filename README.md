@@ -14,24 +14,6 @@ historical charts, and place market & limit orders with fractional shares.
 Everything runs on your machine; the only outbound traffic is to the market-data /
 Alpaca APIs.
 
-![Paper Trader — dark mode on the local simulator](docs/screenshot.png)
-
-<p align="center"><em>Options mode — a live Black-Scholes chain, the order ticket with Greeks, and open option positions:</em></p>
-
-![Paper Trader — options chain, ticket and positions](docs/screenshot-options.png)
-
-<p align="center"><em>The previous interface, still available with <code>run.py --old</code>:</em></p>
-
-![Paper Trader — the classic interface](docs/screenshot-classic.png)
-
-<p align="center"><em>Light mode with candles and the OHLC readout, and the offline demo mid-scrub — the price and change follow the crosshair:</em></p>
-
-<p align="center">
-  <img src="docs/screenshot-candles.png" width="49%" alt="Candlestick chart in light mode">
-  <img src="docs/screenshot-demo.png" width="49%" alt="Demo mode scrubbing a month's chart">
-</p>
-
----
 
 ## Highlights
 
@@ -96,6 +78,28 @@ Alpaca APIs.
 - **Strict layer separation** — `data` (network) / `core` (trading logic) /
   `broker` (execution backends) / `ui` (Qt). The core engine imports neither Qt nor
   `requests` and is unit-tested in isolation.
+
+---
+
+
+## Preview
+
+![Paper Trader — dark mode on the local simulator](docs/screenshot.png)
+
+<p align="center"><em>Options mode — a live Black-Scholes chain, the order ticket with Greeks, and open option positions:</em></p>
+
+![Paper Trader — options chain, ticket and positions](docs/screenshot-options.png)
+
+<p align="center"><em>The previous interface, still available with <code>run.py --old</code>:</em></p>
+
+![Paper Trader — the classic interface](docs/screenshot-classic.png)
+
+<p align="center"><em>Light mode with candles and the OHLC readout, and the offline demo mid-scrub — the price and change follow the crosshair:</em></p>
+
+<p align="center">
+  <img src="docs/screenshot-candles.png" width="49%" alt="Candlestick chart in light mode">
+  <img src="docs/screenshot-demo.png" width="49%" alt="Demo mode scrubbing a month's chart">
+</p>
 
 ---
 
