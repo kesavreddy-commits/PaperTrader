@@ -14,6 +14,7 @@ historical charts, and place market & limit orders with fractional shares.
 Everything runs on your machine; the only outbound traffic is to the market-data /
 Alpaca APIs.
 
+---
 
 ## Highlights
 
