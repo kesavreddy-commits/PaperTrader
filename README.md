@@ -1,84 +1,22 @@
 # Paper Trader
 
-
 https://github.com/user-attachments/assets/cac3100f-b894-4394-aa11-1da3a4c711ad
 
+A **paper-trading desktop app** with real-time market data, live Alpaca paper trading, and **options trading**. Features an animated, Robinhood-style GUI (rolling numbers, price flashes, chart draw-in), **Black-Scholes options** on the local simulator, **limit orders** with fractional shares, and live intraday/historical **line and candlestick charts** with interactive zoom. Run on your machine offline (demo mode) or connect to Alpaca (live paper account). Everything is in **pure black** or light themes, responsive, and never blocks on the network.
 
-A local, real-time **paper-trading desktop app** with a pure-black, Robinhood-style
-GUI — including an **animated** interface (rolling numbers, green/red price flashes,
-a chart line that draws itself in) and **options trading** on the built-in
-simulator. Trade stocks on a **real Alpaca paper account** (server-side orders,
-positions and P&L) or the offline simulator, trade **single-leg call/put options**
-(long *and* short) priced with Black-Scholes, watch live prices and intraday/
-historical charts, and place market & limit orders with fractional shares.
-Everything runs on your machine; the only outbound traffic is to the market-data /
-Alpaca APIs.
+## Features
 
----
-
-## Highlights
-
-- **Real Alpaca paper trading** — market & limit orders route to your Alpaca paper
-  account over REST; account, positions, orders and fills come straight from
-  Alpaca and show up in your Alpaca dashboard too.
-- **Extended-hours trading** — opt into **pre-market (4:00–9:30 am ET)** and
-  **after-hours (4:00–8:00 pm ET)** sessions on the Alpaca account: an
-  *Extended-hours order* checkbox on limit orders submits them as Alpaca
-  `extended_hours` day limits, and the header shows the live **Pre-Market /
-  After Hours** session.
-- **Options trading (local simulator)** — a live, synthesized **options chain**
-  (expirations + strike ladder) priced with **Black-Scholes** off the underlying's
-  spot, so it works with any data source and **no options feed**. Buy/write
-  single-leg **calls & puts** (long *and* short), see bid/mark/ask and the Greeks,
-  cash-secured collateral for shorts, and automatic **exercise/assignment** at
-  expiry.
-- **Animated, Robinhood-grade UI** — portfolio value and stat tiles **roll** to
-  their new figures, the live price **flashes** green/red on a tick, the chart line
-  **draws itself in** left-to-right on symbol/range changes, and views cross-fade.
-- **Pluggable backends** — a clean `Broker` abstraction means the same UI drives
-  either **Alpaca** (live paper account) or a **local simulator** (offline), and
-  market data comes from **Alpaca (IEX)**, **Yahoo Finance**, or **synthetic demo**.
-- **Rate-limit aware** — a shared sliding-window limiter keeps *all* Alpaca calls
-  (data feed + account poll + orders) under the account's ~200/min cap; batched
-  snapshots and cached quotes keep steady-state around ~70/min.
-- **Robinhood-quality GUI** (PyQt6 + pyqtgraph): a top nav with instant symbol
-  search, a watchlist of live **sparklines**, the price hero, a full-height
-  **line and candlestick** chart with a crosshair, key statistics, the Buy/Sell
-  order card, and positions / history / open-orders tables. Dark **and** light
-  themes. The look is **boxy**: cards, buttons, chips and toasts are square
-  boxes, while fields, every dropdown and menu, and the segmented toggles carry a
-  small, soft radius. **Buy is always green and Sell always red.** It's set in two
-  bundled open-source faces: **Inter** (in its Display cut) for the big figures
-  and headings, **Geist** for the small print, both with tabular figures so
-  ticking prices stay put.
-- **A chart that reads like the reference** — scrub it and the hero's price
-  **rolls** digit by digit to the value under the crosshair (up on a rise, down
-  on a fall) while the change follows; the change line follows the range (*Today*, *Past
-  week* … *All time*) and the chart, range tabs and pills tint green or orange
-  with it (the order card keeps Buy green and Sell red). The candle view's
-  O/H/L/C readout sits centred over the plot. The 1D
-  chart draws pre-market, the regular session and after-hours in their own
-  colours and runs out to the end of the trading day; multi-day ranges take out
-  nights, weekends and holidays, so sessions sit side by side instead of being
-  bridged by long flat lines. Fills and errors arrive as toasts.
-- **A chart that zooms like a trading terminal** — the wheel zooms the time axis
-  and the price axis refits itself to whatever is on screen in a single range
-  change, so zooming magnifies the candles instead of squashing them into a flat
-  band, without the price scale lagging a frame behind. The line view is
-  chrome-free by default (just the price, a dotted previous-close reference, a dot
-  where the line ends and the crosshair) and the **Theme** menu turns axes,
-  gridlines and animations on or off.
-- **Never blocks on the network** — market data and the account poll run on their
-  own threads, and orders against a remote broker are dispatched to a worker while
-  the ticket shows *Submitting…*, so an eight-second HTTP timeout can't freeze the
-  window.
-- **Real trading math** — fractional shares, weighted average cost, realized/
-  unrealized P&L, buying-power and share validation, simulated limit fills (local).
-- **Persistence & analytics** — named sessions saved atomically to disk; total
-  return, Sharpe, volatility, max drawdown, win rate, and an equity curve.
-- **Strict layer separation** — `data` (network) / `core` (trading logic) /
-  `broker` (execution backends) / `ui` (Qt). The core engine imports neither Qt nor
-  `requests` and is unit-tested in isolation.
+- **Live Alpaca paper trading** — real orders/positions/P&L to your paper account
+- **Options trading** — Black-Scholes priced calls & puts, long & short, with Greeks
+- **Animated UI** — rolling portfolio values, price flashes, chart draw-in, smooth fades
+- **Charts** — line & candlestick with interactive zoom, scrubbing, crosshair, range picker (1D–ALL)
+- **Data sources** — Alpaca (IEX), Yahoo Finance, or demo (offline, no network)
+- **Extended hours** — pre-market & after-hours trading on Alpaca (limit orders only)
+- **Sessions** — save/load named portfolios atomically; supports undo/reset
+- **Analytics** — Sharpe ratio, volatility, max drawdown, win rate, equity curve
+- **Rate limiting** — Alpaca ~200 calls/min with shared limiter across all requests
+- **Responsive layout** — draggable splitters, narrow-screen column dropping
+- **PyQt6 + pyqtgraph** — native GUI, dark & light themes, bundled Inter + Geist fonts
 
 ---
 
@@ -160,249 +98,53 @@ python tests/test_alpaca.py        # live Alpaca provider + broker (skips withou
 
 ## Using the app
 
-| Area | What you can do |
-|------|-----------------|
-| **Top nav** | The sidebar button (left) shows or hides the watchlist. **Search** any symbol or company name (`⌘F` / `Ctrl+F`); pick a result to chart and watch it. Typing a symbol and pressing Return validates it with the data provider first, so nothing unrecognised ever reaches your watchlist. **Account** switches trading account and holds your API keys, **Market Data** switches provider, plus **Analytics** and **Theme**. The chip on the right shows the live account + data source. |
-| **Account strip** | Total value, today's change, all-time return, and buying-power / market-value / invested / unrealized / realized tiles. |
-| **Watchlist (left rail)** | Each row shows the day's sparkline against the previous close, the price and the day's change. Click a row to chart it; right-click to remove. Persists per session. Hide it with the sidebar button or **View → Show Watchlist** (`Ctrl+L`) — the choice is remembered. |
-| **Centre (Stock / Options)** | The **Stock ⁄ Options** and **Line ⁄ Candles** switches sit beside the price. In **Stock** mode: the big chart — ranges `1D … ALL` under it; hover for a crosshair with the time caption (candles get an OHLC readout) while the hero's price rolls to the hovered value and its change follows; the line lights up to the cursor (on `1D`, the hovered session). The dotted `1D` line is the previous close and a dot marks where the line ends; **Key statistics** (open, high, low, previous close, volume) sit under the chart when there is room. The line view is deliberately bare; **Theme → Chart** turns axes and gridlines on if you want them. **Scroll to zoom the time axis** — the price axis refits the visible bars, so candles genuinely magnify — then **Reset zoom** to go back. In **Options** mode: a live **options chain** — pick an expiration, flip **Calls / Puts**, click a strike (the ladder auto-centres on the money) to load it into the ticket. |
-| **Order card (right)** | **Stock:** *Buy ⁄ Sell* tabs in the header (the chevron picks market or limit), order type, amount in **Shares or Dollars**, **Max**, market price, commissions and estimated cost. **Options:** a card whose label reflects open vs close (*Buy to Open*, *Sell to Close*, …), a contracts stepper, live bid/mark/ask + Δ/θ/IV, estimated cost/credit and the collateral note for shorts. Beneath it: **Trade options** and **Watch / Unwatch** for the active symbol. |
-| **Notices** | Fills, cancellations and errors appear as a toast at the bottom of the window; an error clears itself once data flows again. |
-| **Bottom tabs** | **Positions** (stocks), **Options** (each contract's qty, avg premium, mark, value, P&L, Δ, DTE, one-click Close), **History** (every fill incl. options & expirations), **Orders** (resting limit orders with Cancel). |
-| **File menu** | New / Open / Rename / Reset / Save session. |
-| **Account menu** | Trading account, Alpaca API keys, Analytics (`Ctrl+A`) — Sharpe, volatility, drawdown, win rate, equity curve. |
-| **Theme menu** | Dark / light, and how much chart furniture to draw: **price & time axes**, **gridlines**, and **animations**. The line view ships bare (no axes, no grid) — the candlestick view always keeps its scales. Every choice persists. |
-| **View menu** | The same chart switches under **Chart Display**, dark/light (`Ctrl+D`), the market-data source, and focus search. |
-| **Resizing** | The bars between the watchlist, chart and order card — and between the chart and the blotter — are draggable, with minimums so no pane can be dragged out of existence. Narrow tables drop their least important columns rather than scroll sideways. |
+**Top nav** — Search any symbol (`⌘F` / `Ctrl+F`), toggle the watchlist (left sidebar), switch **Account** (trading destination & API keys), **Market Data** source, **Theme**, or view **Analytics**. The status chip shows your active account + data source.
 
-**Limit orders** rest until the market crosses your price (buys fill at/under,
-sells at/over), then execute at the market price on the next tick — even while you
-keep trading other symbols.
+**Watchlist** (left) — Sparkline, price, and day's change per symbol. Click to chart; right-click to remove. Hides with the sidebar button.
 
-**Extended hours** (Alpaca account). Tick **Extended-hours order** on a **limit**
-order to trade the pre-market (4:00–9:30 am ET) or after-hours (4:00–8:00 pm ET)
-session — it's sent as an Alpaca `extended_hours` day limit (whole shares only;
-market orders and fractional shares aren't eligible after hours). The price
-header's session chip shows when a pre/after-hours session is live.
+**Chart** — Interactive **line** or **candlestick** view. Scroll to zoom the time axis (price axis refits automatically); hover for a **crosshair** and the hero's price **rolls** to match. The line view is bare by default; use **Theme → Chart** to show axes/gridlines. Previous close (dotted line) and OHLC readout (candles only).
 
-**Options** (Local simulator only — switch **Account → Trading Account → Local
-simulator**). Each contract is priced with Black-Scholes from the underlying's live
-price plus a deterministic implied-vol surface, so the chain re-prices in real time
-and needs no options data feed. Market orders fill at the ask (buys) / bid (sells)
-for realistic slippage; short positions are **cash-secured** (collateral held out
-of buying power); and expired contracts auto-settle — long ITM exercised, short ITM
-assigned, everything OTM expires worthless.
+**Order card** (right) — **Stock**: Buy/Sell tabs, market or limit, shares or dollars, estimated cost. **Options**: live bid/ask/mark, Greeks (Δ/θ/IV), collateral for shorts. One-click expand to the full **options chain** (expirations + strikes, auto-centered on the money).
 
-**The previous interface** is still there: `python run.py --old` runs the
-pre-rework layout (portfolio card, watchlist-with-search rail, chart with its
-range buttons on top, filled area line) against the same sessions, brokers and
-data providers. It lives in `paper_trader/ui_legacy/` with its own copies of the
-window, widgets and dialogs (and its own frozen palette in `ui/theme.py`), so
-work on the current interface never changes it; only the data, broker and core
-layers are shared.
+**Bottom tabs** — **Positions** (holdings with P&L), **Options** (contracts, Greeks, DTE, one-click Close), **History** (all fills & exercises), **Orders** (resting limits, Cancel).
 
-Sessions and settings are stored under `~/.paper_trader/` (override with
-`PAPER_TRADER_HOME=/some/dir python run.py`).
+**File menu** — New, Open, Rename, Reset, or Save session.
+
+**Menus**
+- **Account** → trading account switch, Alpaca API keys, Analytics (Sharpe, volatility, max drawdown, equity curve)
+- **Theme** → dark/light + chart furniture (axes, gridlines, animations)
+- **View** → chart type, light/dark (`Ctrl+D`), data source
+
+**Limit orders** wait for the market to cross your price, then fill at market on the next tick. Run silently in the background while you trade other symbols.
+
+**Extended hours** (Alpaca) — Tick **Extended-hours order** on limit orders to trade pre-market (4:00–9:30 am) or after-hours (4:00–8:00 pm). Whole shares only; market orders and fractional not eligible. The header shows when a session is live.
+
+**Options** (local simulator) — Black-Scholes priced off the live spot. Market orders fill at ask (long) / bid (short) for slippage. Shorts are cash-secured. Expired contracts auto-settle: long ITM exercised, short ITM assigned, OTM expires worthless.
+
+**Legacy UI** — `python run.py --old` runs the previous interface. It shares the core engine, brokers, and data layer but has its own UI code.
+
+**Config** — Sessions and settings live in `~/.paper_trader/` (override with `PAPER_TRADER_HOME=/dir python run.py`).
 
 ---
 
 ## Architecture
 
-### Layered design
+Four strict layers: **UI** (PyQt6) → **Broker** (LocalBroker / AlpacaBroker) → **Core** (pure logic) & **Data** (network only) → **Persistence**. The **core** imports neither Qt nor requests and is unit-tested headless. Data layer is the only network entry point with a shared rate limiter. Brokers abstract execution: both return identical DTOs so the UI doesn't care which is active. Network I/O runs on two background threads (market feed, broker poll) to keep the GUI responsive.
 
-The project is split into four layers with a strict dependency direction. Arrows
-show "is allowed to import":
+### Pluggable brokers & data sources
 
-```
-        ┌───────────────────────────────────────────────────┐
-        │                     ui/  (PyQt6)                   │  presentation only
-        │  main_window · widgets · dialogs · theme           │
-        │  controllers/data_feed · controllers/broker_feed   │
-        └───────┬─────────────────┬──────────────────┬───────┘
-                │                 │                  │
-        ┌───────▼───────┐  ┌──────▼───────┐   ┌──────▼───────────┐
-        │   broker/     │  │    core/     │   │      data/       │  ONLY networked layer
-        │ LocalBroker   │  │engine·portfo-│   │ market_data·cache│
-        │ AlpacaBroker  │─▶│lio·analytics │   │ alpaca_client    │
-        │ (Broker API)  │  │ ·models      │   │ providers·errors │
-        └───────┬───────┘  └──────────────┘   └──────────────────┘
-                │          pure logic          Alpaca / Yahoo / synthetic
-        ┌───────▼───────┐  (no Qt, no net)     providers, rate limiter, cache
-        │ persistence/  │
-        └───────────────┘
-```
-
-- **`core` never imports Qt or `requests`** → the trading engine + valuation are
-  tested headlessly and reused by the `LocalBroker`.
-- **`data` is the only layer that opens sockets.** Providers implement one
-  interface (`MarketDataProvider`); a shared rate limiter throttles Alpaca calls.
-- **`broker` abstracts *where trades execute*.** `LocalBroker` wraps the offline
-  engine; `AlpacaBroker` calls the Alpaca REST API. Both return the *same* DTOs
-  (`PortfolioSnapshot`, `Order`, `Trade`), so widgets don't know or care which is
-  active.
-- **`ui` touches the network only through two background threads** (market feed,
-  broker poll) and the business logic only through the `Broker` object `MainWindow`
-  owns.
-
-### File structure
-
-```
-paper_trader/
-├── run.py                     # launcher (python run.py [--demo] [--old] [--home DIR])
-├── requirements.txt
-├── tests/
-│   ├── test_engine.py         # engine, portfolio, analytics, persistence
-│   ├── test_options.py        # Black-Scholes, options engine, chain, settlement
-│   ├── test_data.py           # cache, synthetic provider, Yahoo parser, batching
-│   ├── test_ui.py             # chart zoom, empty states, theming, reset (offscreen)
-│   └── test_alpaca.py         # live Alpaca provider + broker (skips without keys)
-└── paper_trader/
-    ├── config.py              # paths, precision, poll cadence, ranges, rate cap
-    ├── util.py                # money/share rounding helpers
-    ├── credentials.py         # Alpaca key loading (env or ~/.paper_trader), 0600
-    ├── app.py                 # QApplication bootstrap; picks broker + data source
-    │
-    ├── data/                  # ── DATA LAYER (network) ──
-    │   ├── models.py          # Quote, Candle, SearchResult (immutable)
-    │   ├── cache.py           # thread-safe TTL cache
-    │   ├── alpaca_client.py   # Alpaca REST client + shared sliding-window limiter
-    │   ├── market_data.py     # provider interface + Alpaca/Yahoo/Synthetic + service
-    │   └── options_chain.py   # synthesized, offline options chain (expiries+strikes)
-    │
-    ├── core/                  # ── TRADING LOGIC (pure) ──
-    │   ├── models.py          # Session, Position, OptionPosition, Trade, Order (+ JSON)
-    │   ├── options.py         # OCC contracts, Black-Scholes + Greeks, IV surface
-    │   ├── engine.py          # order validation & execution; options + settlement
-    │   ├── portfolio.py       # valuation & P&L snapshots (equities + options)
-    │   └── analytics.py       # returns, Sharpe, drawdown, trade stats
-    │
-    ├── broker/                # ── EXECUTION BACKENDS ──
-    │   ├── base.py            # Broker interface + shared DTO helpers
-    │   ├── local.py           # LocalBroker: the offline simulator
-    │   └── alpaca.py          # AlpacaBroker: live paper account over REST
-    │
-    ├── persistence/           # ── STORAGE ──
-    │   └── store.py           # atomic JSON sessions + settings, multi-session
-    │
-    ├── ui/                    # ── PRESENTATION (Qt) ──
-    │   ├── theme.py           # pure-black + light palettes, stylesheet, typefaces, chart colors
-    │   ├── fonts/             # bundled Inter + Geist (SIL OFL 1.1; licences alongside)
-    │   ├── icons.py           # SVG icon set (logo, search, chevrons, checks, …)
-    │   ├── anim.py            # rolling numbers & digit roll, price flash, fades (the motion layer)
-    │   ├── format.py          # money/%/share/time formatting
-    │   ├── tables.py          # shared table chrome: row hover, columns that drop to fit
-    │   ├── nav_bar.py         # top bar: wordmark, symbol search, account controls
-    │   ├── main_window.py     # composition root: wires everything together
-    │   ├── dialogs.py         # new/open session, analytics, Alpaca API keys
-    │   ├── controllers/
-    │   │   ├── data_feed.py   # QThread worker polling market data (+ sparklines)
-    │   │   └── broker_feed.py # QThread worker polling the remote broker
-    │   └── widgets/
-    │       ├── portfolio_bar.py   price_header.py   chart.py
-    │       ├── watchlist.py       trade_panel.py    segments.py   toast.py
-    │       ├── options_chain.py   option_ticket.py  options_positions.py
-    │       └── positions_table.py history_table.py
-    │
-    └── ui_legacy/             # ── THE PREVIOUS UI (run.py --old) ──
-        ├── main_window.py     # the earlier composition root
-        ├── dialogs.py         # its own copy of the dialogs
-        └── widgets/           # its own copies of every view it shows
-```
-
-### Data flow
-
-**Prices in (background → UI).** A `DataFeed` `QObject` lives on its own
-`QThread` and ticks on a `QTimer`. Each tick it asks `MarketDataService` for the
-active symbol's quote (and periodically its chart and the watchlist). The service
-serves from a **TTL cache** or fetches from the provider. Results cross to the GUI
-thread as **Qt signals** — so the UI never blocks and updates are serialized onto
-the event loop (no flicker, no torn reads).
-
-```
-QTimer tick → MarketDataService → (cache | Alpaca/Yahoo/Synthetic provider)
-            → quoteReady / chartReady / watchlistQuotesReady  ──signal──▶ MainWindow
-            → PriceHeader · ChartWidget · WatchlistPanel · PositionsTable · PortfolioBar
-```
-
-**Account state in (remote brokers).** For Alpaca, a second `BrokerFeed` thread
-polls `broker.refresh()` (account/positions/orders/fills) and signals `updated`;
-MainWindow re-reads `broker.snapshot(prices)` on the GUI thread. Position values
-still tick on every *price* update because `snapshot()` overlays live prices on
-cached positions with **no** network call.
-
-**Actions out (UI → logic).** Widgets emit intent (an `OrderTicket`, a symbol
-selection, a search string). `MainWindow` is the only place that calls the
-**broker**, reconfigures the feeds, or persists:
-
-```
-TradePanel.orderRequested ─▶ MainWindow ─▶ Broker.buy/sell/limit  (LocalBroker → engine,
-                                         │                          AlpacaBroker → REST)
-                                         ─▶ Broker.snapshot() ─▶ refresh views
-```
-
-For the local simulator, every price tick also runs `broker.on_price_tick(prices)`
-so resting **limit orders** fill the moment their trigger is reached (Alpaca does
-this server-side).
-
-### Brokers, data sources & rate limiting
-
-- **Trading account** (Account menu): *Alpaca paper* — real orders/positions/P&L
-  from your Alpaca account — or *Local simulator* — the offline engine.
-- **Market data** (View → Market Data Source): *Alpaca (IEX)*, *Yahoo Finance*, or
-  *Demo* (synthetic, no network).
-- **Rate limiting.** Alpaca allows ~200 API calls/min per account. A shared,
-  thread-safe **sliding-window limiter** (`RateLimiter`, one per API key) throttles
-  every Alpaca request — across the data feed, broker poll and order actions — to a
-  configurable cap (default 180/min) with headroom. Load is also *reduced*: the
-  watchlist is fetched with one multi-symbol snapshot, active quotes are snapshot-
-  only (no bars), quotes are TTL-cached, and fills are polled less often than the
-  account. Measured steady-state: **~66 calls/min**.
-
----
-
-## How it was built (incremental order)
-
-The app was built and verified bottom-up, each layer tested before the next:
-
-1. **Data layer** — provider interface, Yahoo JSON client, TTL cache, typed
-   errors; verified quote/chart/search parsing and the invalid-symbol path.
-2. **Trading core** — `Session`/`Position`/`Trade`/`Order` models, then the
-   engine (buy/sell/limit, validation, average cost, realized P&L), portfolio
-   valuation and analytics; 25 assertions covering the accounting.
-3. **Persistence** — atomic JSON sessions + settings, multi-session listing;
-   round-trip verified.
-4. **UI shell & theme** — window layout, splitters, dark/light stylesheet.
-5. **Widgets** — price header, chart (line + candlestick + crosshair), watchlist,
-   order ticket, tables.
-6. **Feed thread & wiring** — background polling, signal/slot plumbing, live
-   portfolio refresh, limit-order processing.
-7. **Polish** — analytics dialog, session management, demo mode, keyboard
-   shortcuts; end-to-end tested offscreen (build window → run feed → trade →
-   persist) and visually verified.
+- **Trading** — *Alpaca paper* (live API calls to your paper account) or *Local simulator* (offline engine)
+- **Market data** — *Alpaca (IEX)*, *Yahoo Finance*, or *Demo* (offline synthetic)
+- **Rate limiting** — Alpaca's ~200 calls/min/account is managed by a shared sliding-window limiter across all requests. Load is reduced: multi-symbol snapshot batches, TTL cache, less-frequent fill polls. Steady-state: ~66 calls/min.
 
 ---
 
 ## Design notes
 
-- **Money math.** Prices/quantities are `float` (market data arrives as floats and
-  feeds numpy/pyqtgraph directly), but every mutation in the engine is rounded via
-  `util.round_money` (cents) / `round_shares` (1e-6). Dollar-sized buys truncate
-  shares down so an order can never exceed its budget by a rounding cent.
-- **Rate limits.** Alpaca's ~200 calls/min/account is respected by a shared
-  sliding-window `RateLimiter` (one per key, so the data feed, broker poll and
-  order actions can't collectively exceed it) plus load reduction: batched
-  multi-symbol snapshots, snapshot-only active quotes, a TTL cache, and less-
-  frequent fill polling. Yahoo's per-IP throttling is handled with backoff and
-  cookie/crumb self-healing. Steady-state Alpaca usage is ~66/min.
-- **Resilience.** Network/HTTP failures, invalid tickers, missing keys and offline
-  states are caught as typed errors, surfaced non-blockingly as toasts, and
-  never crash the app or lose your last good data. Saves are atomic; corrupt
-  session files are skipped rather than fatal.
-- **Credentials.** Alpaca keys live in `~/.paper_trader/credentials.json`
-  (chmod 600) or `APCA_*` env vars — never in the repo (`.gitignore`d).
-- **Threading.** Network I/O runs on two worker threads (market feed, broker poll)
-  plus a small pool for search; all Qt widget updates happen on the GUI thread via
-  queued signals.
+- **Money math** — all prices/quantities rounded via `util.round_money` (cents) / `round_shares` (1e-6). Dollar buys truncate shares down so orders can't exceed budget by a rounding cent.
+- **Resilience** — network/HTTP failures, invalid tickers, missing keys, and offline states are caught and surfaced as toasts without crashing. Saves are atomic; corrupt session files are skipped.
+- **Credentials** — Alpaca keys in `~/.paper_trader/credentials.json` (chmod 600) or `APCA_*` env vars, never in the repo. Load them at runtime into the process environment.
+- **Threading** — market data and account poll run on background threads; all Qt updates queued to the GUI thread. Orders dispatched to a worker so the UI never blocks.
 
 ## Optional features implemented
 
